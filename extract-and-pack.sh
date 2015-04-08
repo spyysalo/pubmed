@@ -5,10 +5,13 @@
 set -e
 set -u
 
-DIR=`mktemp -d extract-XXX`
+# http://stackoverflow.com/a/246128
+SCRIPTDIR=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
+
+TMPDIR=`mktemp -d extract-XXX`
 
 function cleanup {
-    rm -rf "$DIR"
+    rm -rf "$TMPDIR"
 }
 trap cleanup EXIT
 
@@ -19,7 +22,7 @@ fi
 
 for f in "$@"; do
     echo -n "Extracting $f ... " >&2
-    python extractTIABs.py -o "$DIR" "$f"
+    python "$SCRIPTDIR/extractTIABs.py" -o "$TMPDIR" "$f"
     echo "done." >&2
 
     t=`basename $f .xml.gz`
@@ -30,11 +33,11 @@ for f in "$@"; do
     fi
 
     echo -n "Packing to $t ... " >&2
-    tar czf "$t" -C "$DIR" .
+    tar czf "$t" -C "$TMPDIR" .
     echo "done." >&2
 
     echo -n "Cleaning up ... " >&2
-    rm -rf "$DIR"
-    mkdir "$DIR"
+    rm -rf "$TMPDIR"
+    mkdir "$TMPDIR"
     echo "done." >&2
 done
