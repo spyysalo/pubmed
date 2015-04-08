@@ -12,13 +12,6 @@ try:
 except ImportError: 
     import cElementTree as ET   
 
-try:
-    import psyco
-    psyco.full()
-except:
-    # nevermind if this doesn't work
-    pass
-
 options = None
 output_count, skipped_count = 0,0
 
