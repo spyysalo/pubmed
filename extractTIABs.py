@@ -23,6 +23,7 @@ def argparser():
     ap.add_argument("-gt", "--PMID-greater-than", metavar="PMID", default=None, help="Only process citations with PMIDs greater than the given value.")
     ap.add_argument("-lt", "--PMID-lower-than", metavar="PMID", default=None, help="Only process citations with PMIDs lower than the given value.")
     ap.add_argument("-sa", "--single-line-abstract", default=False, action="store_true", help="Always output abstract on single line.")
+    ap.add_argument("-nc", "--no-colon", default=False, action="store_true", help="Don't add a colon to structured abstract headings.")
     ap.add_argument("-v", "--verbose", default=False, action="store_true", help="Verbose output.")
     ap.add_argument("files", metavar="FILE", nargs="+", help="Input PubMed distribution XML file(s).")
 
@@ -140,15 +141,22 @@ def process(fn):
                         continue
 
                     t = ""
-                    if "Label" in at.attrib:
-                        t = at.attrib["Label"] + ":"
-                    else:
+                    if "Label" not in at.attrib:
                         print >> sys.stderr, "Warning: missing 'Label' for multiple <AbstractText>s in %s" % PMID.text
+                    elif at.attrib["Label"] == "UNLABELLED":
+                        if options.verbose:
+                            print >> sys.stderr, "NOTE: skipping <AbstractText> Label \"UNLABELLED\" in %s" % PMID.text
+                    else:
+                        t = at.attrib["Label"]
+                        if not options.no_colon:
+                            t += ":"
 
                     if at.text is None or at.text.strip() == "":
                         print >> sys.stderr, "NOTE: empty text for one of multiple <AbstractText>s in %s" % PMID.text
                     else:
-                        if options.single_line_abstract:
+                        if not t:
+                            t = at.text
+                        elif options.single_line_abstract:
                             t += " " + at.text
                         else:
                             t += "\n"+ at.text
