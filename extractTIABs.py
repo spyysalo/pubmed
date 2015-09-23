@@ -34,7 +34,7 @@ def process(fn):
     # create a directory for this package; we don't want to have all
     # the files in a single directory.
     filename = os.path.basename(fn)
-    m = re.match(r'(medline\d\dn\d+)\.xml(?:\.gz)?$', filename)
+    m = re.match(r'([A-Za-z0-9_-]+)\.xml(?:\.gz)?$', filename)
     assert m, "ERROR: unexpected filename '%s'" % filename
     filenamebase = m.group(1)
     outputDir = os.path.join(options.output_dir, filenamebase)
