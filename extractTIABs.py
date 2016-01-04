@@ -31,6 +31,116 @@ def argparser():
 
     return ap
 
+def find_only(element, match):
+    """Return the only matching child of the given element.
+
+    Fail on assert if there are no or multiple matches.
+    """
+    found = element.findall(match)
+    assert len(found) == 1, 'Error: expected 1 %s, got %d' % (match, len(found))
+    return found[0]
+
+def find_abstract(citation, PMID, options):
+    """Return the Abstract element for given Article, or None if none."""
+    # basic case: exactly one <Abstract> in <Article>.
+    article = find_only(citation, 'Article')
+    abstracts = article.findall('Abstract')
+    assert len(abstracts) in (0,1), 'ERROR: %d abstracts for PMID %s' % \
+        (len(abstracts, PMID.text))
+    abstract = None if not abstracts else abstracts[0]
+
+    # if there's no <Abstract>, look for <OtherAbstract> in the
+    # citation (*not* the article).
+    if abstract is None:
+        otherAbstracts = citation.findall('OtherAbstract')
+        # This happens a few times.
+        if len(otherAbstracts) > 1 and options.verbose:
+            print >> sys.stderr, "NOTE: %d 'other' abstracts for PMID %s. Only printing first." % (len(otherAbstracts), PMID.text)
+        if otherAbstracts != []:
+            abstract = otherAbstracts[0]
+
+    return abstract
+
+def get_abstract_text(abstract, PMID, options):
+    """Return the text of the given Abstract element."""
+    if abstract is None:
+        return ''
+
+    # Abstract should contain an AbstractText
+    abstractTexts = abstract.findall('AbstractText')
+    assert len(abstractTexts) != 0, "ERROR: %d abstract texts for PMID %s" % \
+                                 (len(abstractTexts), PMID.text)
+
+    # Basic case: exactly one <AbstractText>; just return the content.
+    if len(abstractTexts) == 1:
+        return abstractTexts[0].text
+
+    # Recent versions of PubMed data may contain multiple AbstractText
+    # elements for structured abstracts. In these cases, "label"
+    # attributes give structured abstract section headers and should
+    # be combined into the text.
+    assert len(abstractTexts) > 1, "INTERNAL ERROR"
+    if options.verbose:
+        print >> sys.stderr, "NOTE: multiple <AbstractText>s for %s" % PMID.text
+
+    sectionTexts = []
+    for at in abstractTexts:
+        # there may be instances of empty <AbstractText> elements in
+        # the data (see e.g. PMID 20619000 in the PubMed 2012
+        # baseline). Skip those with the special "empty" label
+        # "UNLABELLED" entirely; print the label only for the rest.
+        if ((at.text is None or at.text.strip() == "") and
+            at.attrib.get("Label","") == "UNLABELLED"):
+            if options.verbose:
+                print >> sys.stderr, "NOTE: skipping empty <AbstractText>s with label \"UNLABELLED\" in %s" % PMID.text
+            continue
+
+        t = ""
+        if "Label" not in at.attrib:
+            print >> sys.stderr, "Warning: missing 'Label' for multiple <AbstractText>s in %s" % PMID.text
+        elif at.attrib["Label"] == "UNLABELLED":
+            if options.verbose:
+                print >> sys.stderr, "NOTE: skipping <AbstractText> Label \"UNLABELLED\" in %s" % PMID.text
+        else:
+            t = at.attrib["Label"]
+            if not options.no_colon:
+                t += ":"
+
+        if at.text is None or at.text.strip() == "":
+            print >> sys.stderr, "NOTE: empty text for one of multiple <AbstractText>s in %s" % PMID.text
+        else:
+            if not t:
+                t = at.text
+            elif options.single_line_abstract:
+                t += " " + at.text
+            else:
+                t += "\n"+ at.text
+        sectionTexts.append(t)
+
+    if options.single_line_abstract:
+        return " ".join(sectionTexts)
+    else:
+        return "\n".join(sectionTexts)
+
+def skip_pmid(PMID, options, out=None):
+    """Return True if PMID should be skipped by options, False otherwise."""
+    if out is None:
+        out = sys.stderr
+    if ((options.PMID_greater_than is not None and
+         PMID <= options.PMID_greater_than) or
+        (options.PMID_lower_than is not None and
+         PMID >= options.PMID_lower_than)):
+        if options.verbose:
+            print >> out, "Note: skipping %d" % PMID,
+            if options.PMID_greater_than is not None:
+                print >> out, "(lower limit %d)" % options.PMID_greater_than,
+            if options.PMID_lower_than is not None:
+                print >> out, "(upper limit %d)" % options.PMID_lower_than,
+            print >> out
+        return True
+    else:
+        return False
+
 def process(fn):
     global options, output_count, skipped_count
 
@@ -59,125 +169,32 @@ def process(fn):
         # we're only interested in tracking citation end events
         if event != "end" or element.tag != "MedlineCitation":
             continue
-
         citation = element
 
         # the citation element should have exactly one PMID child
-        PMIDs = citation.findall("PMID")
-        assert len(PMIDs) == 1, "ERROR: expected 1 PMID, got %d" % len(PMIDs)
-        PMID = PMIDs[0]
+        PMID = find_only(citation, 'PMID')
 
-        # if a PMID range has been specified, check that we're in the
-        # range
-        if ((options.PMID_greater_than is not None and 
-             int(PMID.text) <= options.PMID_greater_than) or
-            (options.PMID_lower_than is not None and
-             int(PMID.text) >= options.PMID_lower_than)):
-            if options.verbose:
-                print >> sys.stderr, "Note: skipping %s",
-                if options.PMID_greater_than is not None:
-                     print >> sys.stderr, "(lower limit %d)" % (PMID.text, options.PMID_greater_than),
-                if options.PMID_lower_than is not None:
-                     print >> sys.stderr, "(upper limit %d)" % (PMID.text, options.PMID_lower_than),
-                print >> sys.stderr
+        # if a PMID range has been specified, check that we're in it
+        if skip_pmid(int(PMID.text), options):
             skipped_count += 1
-            # clear out the element; we're not going to use it.
-            citation.clear()
+            citation.clear()    # Won't need this
             continue
 
-        # likewise, there should be exactly one Article child
-        articles = citation.findall("Article")
-        assert len(articles) == 1, "ERROR: %d articles for PMID %s" % (len(articles), PMID.text)
-        article = articles[0]
+        # likewise, there should be exactly one Article child and
+        # Article should have a single ArticleTitle. (Abstract is a
+        # bit trickier.)
+        article = find_only(citation, 'Article')
+        articleTitle = find_only(article, 'ArticleTitle')
+        abstract = find_abstract(citation, PMID, options)
 
-        # further, Article should have a single ArticleTitle
-        articleTitles = article.findall("ArticleTitle")
-        assert len(articleTitles) == 1, "ERROR: %d titles for PMID %s" % (len(articleTitles, PMID.text))
-        articleTitle = articleTitles[0]
+        # We've got all the elements we need. Now we just need the texts
+        textPMID = PMID.text
+        textTitle = articleTitle.text
+        textAbstract = get_abstract_text(abstract, PMID, options)
 
-        # also, Article typically (but not always) contains an Abstract
-        abstracts = article.findall("Abstract")
-        assert len(abstracts) in (0,1), "ERROR: %d abstracts for PMID %s" % (len(abstracts, PMID.text))
-        abstract = None
-        if abstracts != []:
-            abstract = abstracts[0]
-
-        # if there's no Abstract, try to look for <OtherAbstract> in
-        # the citation (not the article) element, which seems to be
-        # used in some cases
-        if abstract is None:
-            otherAbstracts = citation.findall("OtherAbstract")
-            # This happens a few times.
-            if len(otherAbstracts) > 1 and options.verbose:
-                print >> sys.stderr, "NOTE: %d 'other' abstracts for PMID %s. Only printing first." % (len(otherAbstracts), PMID.text)
-            if otherAbstracts != []:
-                abstract = otherAbstracts[0]
-
-        abstractText = None
-        textAbstract = ""
-        if abstract is not None:
-            # if there's an Abstract, it should contain an AbstractText
-            abstractTexts = abstract.findall("AbstractText")
-            assert len(abstractTexts) != 0, "ERROR: %d abstract texts for PMID %s" % (len(abstractTexts), PMID.text)
-
-            if len(abstractTexts) == 1:
-                abstractText = abstractTexts[0]
-                textAbstract = abstractText.text
-            else:
-                # recent versions of PubMed data may contain multiple
-                # AbstractText elements for structured abstracts. In these
-                # cases, "label" attributes give structured abstract
-                # section headers and should be combined into the text.
-                assert len(abstractTexts) > 1, "INTERNAL ERROR"
-                if options.verbose:
-                    print >> sys.stderr, "NOTE: multiple <AbstractText>s for %s" % PMID.text
-                sectionTexts = []
-
-                for at in abstractTexts:
-                    # there may be instances of empty <AbstractText>
-                    # elements in the data (see e.g. PMID 20619000 in
-                    # the PubMed 2012 baseline). Skip those with the
-                    # special "empty" label "UNLABELLED" entirely;
-                    # print the label only for the rest.
-                    if ((at.text is None or at.text.strip() == "") and 
-                        at.attrib.get("Label","") == "UNLABELLED"):
-                        if options.verbose:
-                            print >> sys.stderr, "NOTE: skipping empty <AbstractText>s with label \"UNLABELLED\" in %s" % PMID.text
-                        continue
-
-                    t = ""
-                    if "Label" not in at.attrib:
-                        print >> sys.stderr, "Warning: missing 'Label' for multiple <AbstractText>s in %s" % PMID.text
-                    elif at.attrib["Label"] == "UNLABELLED":
-                        if options.verbose:
-                            print >> sys.stderr, "NOTE: skipping <AbstractText> Label \"UNLABELLED\" in %s" % PMID.text
-                    else:
-                        t = at.attrib["Label"]
-                        if not options.no_colon:
-                            t += ":"
-
-                    if at.text is None or at.text.strip() == "":
-                        print >> sys.stderr, "NOTE: empty text for one of multiple <AbstractText>s in %s" % PMID.text
-                    else:
-                        if not t:
-                            t = at.text
-                        elif options.single_line_abstract:
-                            t += " " + at.text
-                        else:
-                            t += "\n"+ at.text
-                    sectionTexts.append(t)
-
-                if options.single_line_abstract:                
-                    textAbstract = " ".join(sectionTexts)
-                else:
-                    textAbstract = "\n".join(sectionTexts)
-
-        # OK, we've got all we need. Now we just need the texts
-        textPMID     = PMID.text
-        textTitle    = articleTitle.text        
-
-        # bit of sanity checking
-        assert re.match(r'^\d+$', textPMID), "ERROR: unexpected characters in PMID: '%s'" % textPMID
+        # sanity
+        assert re.match(r'^\d+$', textPMID), \
+            "ERROR: unexpected PMID format: '%s'" % textPMID
 
         if outputDir is not None:
             # output title and abstract into a file
