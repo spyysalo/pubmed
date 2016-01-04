@@ -19,10 +19,12 @@ def argparser():
     import argparse
 
     ap=argparse.ArgumentParser(description="Extract per-document title and abstract texts from PubMed distribution XML file.")
-    ap.add_argument("-o", "--output-dir", metavar="DIR", default="texts", help="Base output directory (default \"texts/\")")
+    ap.add_argument("-o", "--output-dir", metavar="DIR", default="texts", help="Output directory (default \"texts/\", \"-\" for stdout)")
     ap.add_argument("-gt", "--PMID-greater-than", metavar="PMID", default=None, help="Only process citations with PMIDs greater than the given value.")
     ap.add_argument("-lt", "--PMID-lower-than", metavar="PMID", default=None, help="Only process citations with PMIDs lower than the given value.")
     ap.add_argument("-sa", "--single-line-abstract", default=False, action="store_true", help="Always output abstract on single line.")
+    ap.add_argument("-na", "--no-abstract", default=False, action="store_true", help="Don't output abstracts (titles only).")
+    ap.add_argument("-nt", "--no-title", default=False, action="store_true", help="Don't output titles (abstracts only).")
     ap.add_argument("-nc", "--no-colon", default=False, action="store_true", help="Don't add a colon to structured abstract headings.")
     ap.add_argument("-v", "--verbose", default=False, action="store_true", help="Verbose output.")
     ap.add_argument("files", metavar="FILE", nargs="+", help="Input PubMed distribution XML file(s).")
@@ -38,10 +40,13 @@ def process(fn):
     m = re.match(r'([A-Za-z0-9_-]+)\.xml(?:\.gz)?$', filename)
     assert m, "ERROR: unexpected filename '%s'" % filename
     filenamebase = m.group(1)
-    outputDir = os.path.join(options.output_dir, filenamebase)
-    
-    # TODO: fail gracefully on problems
-    os.mkdir(outputDir)
+
+    if options.output_dir != '-':
+        outputDir = os.path.join(options.output_dir, filenamebase)
+        # TODO: fail gracefully on problems
+        os.mkdir(outputDir)
+    else:
+        outputDir = None    # use STDOUT
 
     # if the extension suggests a zip, wrap
     input = fn
@@ -174,16 +179,23 @@ def process(fn):
         # bit of sanity checking
         assert re.match(r'^\d+$', textPMID), "ERROR: unexpected characters in PMID: '%s'" % textPMID
 
-        # output title and abstract into a file
-        outputFile = os.path.join(outputDir, textPMID + ".txt")
-        out = open(outputFile, "w")
+        if outputDir is not None:
+            # output title and abstract into a file
+            outputFile = os.path.join(outputDir, textPMID + ".txt")
+            out = open(outputFile, "w")
+        else:
+            out = sys.stdout
 
-        print >> out, textTitle.encode("UTF-8")
-        if textAbstract:
-            print >> out, textAbstract.encode("UTF-8")
-        elif options.verbose:
-            print >> sys.stderr, "No abstract for %s" % textPMID
-        out.close()
+        if not options.no_title:
+            print >> out, textTitle.encode("UTF-8")
+        if not options.no_abstract:
+            if textAbstract:
+                print >> out, textAbstract.encode("UTF-8")
+            elif options.verbose:
+                print >> sys.stderr, "No abstract for %s" % textPMID
+
+        if outputDir is not None:
+            out.close()
 
         output_count += 1
         
@@ -198,6 +210,10 @@ def main(argv):
     global options, output_count, skipped_count
     options = arg = argparser().parse_args(argv[1:])
 
+    if options.no_title and options.no_abstract:
+        print >> sys.stderr, "Error: both --no-abstract and --no-title given"
+        return 1
+
     if options.PMID_greater_than is not None:
         options.PMID_greater_than = int(options.PMID_greater_than)
     if options.PMID_lower_than is not None:
@@ -207,6 +223,7 @@ def main(argv):
         process(fn)
 
     print >> sys.stderr, "Done. Output texts for %d PMIDs, skipped %d." % (output_count, skipped_count)
+    return 0
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
