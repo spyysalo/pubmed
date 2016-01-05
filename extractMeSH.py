@@ -8,9 +8,32 @@ import xml.etree.ElementTree as ET
 
 from logging import warn
 
+# MeSH top-level structure (from https://www.nlm.nih.gov/cgi/mesh/2016/MB_cgi),
+# not explicitly found in the XML
+meshtop = [
+    ['A', 'Anatomy', ['A']],
+    ['B', 'Organisms', ['B']],
+    ['C', 'Diseases', ['C']],
+    ['D', 'Chemicals and Drugs', ['D']],
+    ['E', 'Analytical, Diagnostic and Therapeutic Techniques and Equipment', ['E']],
+    ['F', 'Psychiatry and Psychology', ['F']],
+    ['G', 'Phenomena and Processes', ['G']],
+    ['H', 'Disciplines and Occupations', ['H']],
+    ['I', 'Anthropology, Education, Sociology and Social Phenomena', ['I']],
+    ['J', 'Technology, Industry, Agriculture', ['J']],
+    ['K', 'Humanities', ['K']],
+    ['L', 'Information Science', ['L']],
+    ['M', 'Named Groups', ['M']],
+    ['N', 'Health Care', ['N']],
+    ['V', 'Publication Characteristics', ['V']],
+    ['Z', 'Geographicals', ['Z']],
+]
+
 def argparser():
     import argparse
     ap=argparse.ArgumentParser(description="Extract data from MeSH XML")
+    ap.add_argument('-t', '--top', default=False, action='store_true',
+                    help='Include implicit top-level structure')
     ap.add_argument('-d', '--dict', default=False, action='store_true',
                     help='Output python dictionary (default TSV)')
     ap.add_argument("file", metavar="FILE", help="Input MeSH XML.")
@@ -68,6 +91,9 @@ def main(argv):
     args = argparser().parse_args(argv[1:])
 
     write_header(args)
+    if args.top:
+        for uid, name, treenums in meshtop:
+            write_data(uid, name, treenums, args)
     for event, element in ET.iterparse(args.file):
         if event != 'end' or element.tag != 'DescriptorRecord':
             continue
