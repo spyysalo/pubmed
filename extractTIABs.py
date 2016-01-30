@@ -3,39 +3,184 @@
 from __future__ import with_statement
 
 import sys
-import re
 import os
+import codecs
 import gzip
 import logging
 
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 from logging import error, warn, info
 
 try:
     import xml.etree.ElementTree as ET
-except ImportError: 
-    import cElementTree as ET   
+except ImportError:
+    import cElementTree as ET
 
-options = None
-output_count, skipped_count = 0,0
+utf8_stdout = codecs.getwriter('utf8')(sys.stdout)
+
+output_count, skipped_count = 0, 0
 
 def argparser():
     import argparse
 
-    ap=argparse.ArgumentParser(description="Extract per-document title and abstract texts from PubMed distribution XML file.")
-    ap.add_argument("-o", "--output-dir", metavar="DIR", default="texts", help="Output directory (default \"texts/\", \"-\" for stdout)")
-    ap.add_argument("-gt", "--PMID-greater-than", metavar="PMID", default=None, help="Only process citations with PMIDs greater than the given value.")
-    ap.add_argument("-lt", "--PMID-lower-than", metavar="PMID", default=None, help="Only process citations with PMIDs lower than the given value.")
-    ap.add_argument("-sa", "--single-line-abstract", default=False, action="store_true", help="Always output abstract on single line.")
-    ap.add_argument("-mh", "--mesh-headings", default=False, action="store_true", help="Output MeSH headings.")
-    ap.add_argument("-mt", "--mesh-trees", default=False, action="store_true", help="Output expanded MeSH trees (implies -mh).")
-    ap.add_argument("-na", "--no-abstract", default=False, action="store_true", help="Don't output abstracts (titles only).")
-    ap.add_argument("-nt", "--no-title", default=False, action="store_true", help="Don't output titles (abstracts only).")
-    ap.add_argument("-nc", "--no-colon", default=False, action="store_true", help="Don't add a colon to structured abstract headings.")
-    ap.add_argument("-v", "--verbose", default=False, action="store_true", help="Verbose output.")
-    ap.add_argument("files", metavar="FILE", nargs="+", help="Input PubMed distribution XML file(s).")
-
+    ap=argparse.ArgumentParser(description='Extract texts from PubMed XML.')
+    ap.add_argument('-o', '--output-dir', metavar='DIR', default='texts',
+                    help='Output directory (default "texts\", "-" for stdout)')
+    ap.add_argument('-gt', '--PMID-greater-than', metavar='PMID', default=None,
+                    help='Only process citations with PMIDs > PMID.')
+    ap.add_argument('-lt', '--PMID-lower-than', metavar='PMID', default=None,
+                    help='Only process citations with PMIDs < PMID.')
+    ap.add_argument('-sa', '--single-line-abstract', default=False,
+                    action='store_true', help='Output abstract on single line.')
+    ap.add_argument('-mh', '--mesh-headings', default=False,
+                    action='store_true', help='Output MeSH headings.')
+    ap.add_argument('-mt', '--mesh-trees', default=False, action='store_true',
+                    help='Output expanded MeSH trees (implies -mh).')
+    ap.add_argument('-na', '--no-abstract', default=False, action='store_true',
+                    help='Do not output abstracts.')
+    ap.add_argument('-nt', '--no-title', default=False, action='store_true',
+                    help='Do not output titles.')
+    ap.add_argument('-nc', '--no-colon', default=False, action='store_true',
+                    help='Do not add a colon to structured abstract headings.')
+    ap.add_argument('-v', '--verbose', default=False, action='store_true',
+                    help='Verbose output.')
+    ap.add_argument('files', metavar='FILE', nargs='+',
+                    help='Input PubMed distribution XML file(s).')
     return ap
+
+class Citation(object):
+    """Represents a PubMed citation."""
+
+    def __init__(self, PMID, title, sections, mesh):
+        self.PMID = PMID
+        self.title = title
+        self.sections = sections
+        self.mesh = mesh
+
+    def abstract_text(self, options=None):
+        section_texts = [s.text(options) for s in self.sections]
+        space = '\n' if not options or not options.single_line_abstract else ' '
+        return space.join(section_texts)
+
+    def text(self, options=None):
+        lines = []
+        if not options or not options.no_title:
+            lines.append(self.title)
+        if not options or not options.no_abstract:
+            lines.append(self.abstract_text(options))
+        if options and options.mesh_headings:
+            lines.append('\t'.join(['MeSH Terms:'] +
+                                   [m.text(options) for m in self.mesh]))
+        return '\n'.join(lines)
+
+    @classmethod
+    def from_xml(cls, element):
+        PMID = find_only(element, 'PMID').text
+        article = find_only(element, 'Article')
+        title = find_only(article, 'ArticleTitle').text
+        abstract = find_abstract(element, PMID)
+        if abstract is None:
+            abstractTexts = []
+        else:
+            abstractTexts = abstract.findall('AbstractText')
+            assert len(abstractTexts), 'ERROR: no <AbstractText> for %s' % PMID
+        sections = [AbstractSection.from_xml(a, PMID) for a in abstractTexts]
+        mesh_headings = find_mesh_headings(element, PMID)
+        mesh = [MeshHeading.from_xml(h) for h in mesh_headings]
+        return cls(PMID, title, sections, mesh)
+
+class EmptySection(Exception):
+    pass
+
+class AbstractSection(object):
+    """Represents a section of an abstract with text and an optional label."""
+
+    def __init__(self, text, label=None):
+        self._text = text if text is not None else ''
+        self.label = label if label is not None else ''
+
+    def _separator(self, options=None):
+        if not self.label or not self._text:
+            return ''
+        colon = ':' if not options or not options.no_colon else ''
+        space = '\n' if not options or not options.single_line_abstract else ' '
+        return colon + space
+
+    def text(self, options=None):
+        return self.label + self._separator(options) + self._text
+
+    @classmethod
+    def from_xml(cls, element, PMID):
+        if element.text and element.text.strip() != '':
+            text = element.text
+        else:
+            warn('empty text for <AbstractText>s in %s' % PMID)
+            text = ''
+        label = element.attrib.get('Label')
+        # The special Label "UNLABELLED" is interpreted as empty.
+        if label == 'UNLABELLED':
+            label = ''
+        # Empty text and label would imply an empty section. Refuse
+        # to create such aberrations.
+        if not text and not label:
+            raise EmptySection('empty unlabelled <AbstractText> in %s' % PMID)
+        return cls(text, label)
+
+Descriptor = namedtuple('Descriptor', 'id name major')
+Qualifier = namedtuple('Qualifier', 'id name major')
+
+class MeshHeading(object):
+    """Represents a MeSH heading with a Descriptor and optional Qualifiers."""
+
+    def __init__(self, descriptor, qualifiers):
+        self.descriptor = descriptor
+        self.qualifiers = qualifiers
+
+    def descriptor_qualifier_pairs(self):
+        quals = self.qualifiers if self.qualifiers else [None]
+        return [(self.descriptor, q) for q in quals]
+
+    def heading_texts(self):
+        texts = []
+        for d, q in self.descriptor_qualifier_pairs():
+            did = d.id + ('*' if d.major else '')
+            dname = d.name + ('*' if d.major else '')
+            if q is None:
+                texts.append('%s (%s)' % (did, dname))
+            else:
+                qid = q.id + ('*' if q.major else '')
+                qname = q.name + ('*' if q.major else '')
+                texts.append('%s/%s (%s/%s)' % (did, qid, dname, qname))
+        return texts
+
+    def tree_numbers(self):
+        uid_to_node, treenum_name = get_mesh_data()
+        expanded = OrderedDict()
+        # TODO: trace major topics through ancestor expansion
+        for d, q in self.descriptor_qualifier_pairs():
+            for treenum in uid_to_node[d.id]['tnum']:
+                for t in mesh_ancestors(treenum):
+                    expanded[(t, q)] = True
+        return [tree_number_text(t, q, treenum_name) for t, q in expanded]
+
+    def text(self, options=None):
+        if not options or not options.mesh_trees:
+            return '\t'.join(self.heading_texts())
+        else:
+            return '\t'.join(self.tree_numbers())
+
+    @classmethod
+    def from_xml(cls, element):
+        desc = find_only(element, 'DescriptorName')
+        id_ = desc.attrib.get('UI')
+        major = (desc.attrib.get('MajorTopicYN') == 'Y')
+        descriptor = Descriptor(id_, desc.text, major)
+        qualifiers = []
+        for qual in element.findall('QualifierName'):
+            id_ = qual.attrib.get('UI')
+            major = (qual.attrib.get('MajorTopicYN') == 'Y')
+            qualifiers.append(Qualifier(id_, qual.text, major))
+        return cls(descriptor, qualifiers)
 
 def find_only(element, match):
     """Return the only matching child of the given element.
@@ -46,7 +191,7 @@ def find_only(element, match):
     assert len(found) == 1, 'Error: expected 1 %s, got %d' % (match, len(found))
     return found[0]
 
-def find_abstract(citation, PMID, options):
+def find_abstract(citation, PMID):
     """Return the Abstract element for given Article, or None if none."""
     # basic case: exactly one <Abstract> in <Article>.
     article = find_only(citation, 'Article')
@@ -60,16 +205,17 @@ def find_abstract(citation, PMID, options):
     if abstract is None:
         otherAbstracts = citation.findall('OtherAbstract')
         # This happens a few times.
-        if len(otherAbstracts) > 1 and options.verbose:
-            print >> sys.stderr, "NOTE: %d 'other' abstracts for PMID %s. Only printing first." % (len(otherAbstracts), PMID)
+        if len(otherAbstracts) > 1:
+            warn('%d "other" abstracts for PMID %s. Only using first.' %
+                 (len(otherAbstracts), PMID))
         if otherAbstracts != []:
             abstract = otherAbstracts[0]
 
     return abstract
 
-def find_mesh_headings(citation, PMID, options):
+def find_mesh_headings(citation, PMID, options=None):
     """Return list of MeshHeading elements in given citation."""
-    if not options.mesh_headings:
+    if options and not options.mesh_headings:
         return []     # avoid unnecessary load
     heading_lists = citation.findall('MeshHeadingList')
     if not heading_lists:
@@ -79,39 +225,13 @@ def find_mesh_headings(citation, PMID, options):
     headings = heading_lists[0]
     return headings.findall('MeshHeading')
 
-def is_major_topic(mesh_element):
-    """Return whether descriptor or qualifier is marked as a major topic."""
-    if mesh_element is None:
-        return False
-    v = mesh_element.attrib.get('MajorTopicYN')
-    if not v:
-        warn('missing MajorTopicYN for %s' % str(mesh_element))
-        return False
-    if v not in 'YN':
-        warn('unexpected MajorTopicYN value %s' % v)
-        return False
-    return v == 'Y'
-
-def mesh_text(descriptor, qualifier):
-    uid = descriptor.attrib.get('UI')
-    text = descriptor.text
-    if is_major_topic(descriptor):
-        uid += '*'
-        text += '*'
-    if qualifier is not None:
-        uid += '/'+qualifier.attrib.get('UI')
-        text += '/'+qualifier.text
-        if is_major_topic(qualifier):
-            uid += '*'
-            text += '*'
-    return '%s (%s)' % (uid, text)
-
-def tree_text(treenum, qualifier, treenum_to_name):
+def tree_number_text(treenum, qualifier, treenum_to_name):
+    """Return human-readable text for MeSH treenumber."""
     num = treenum
     text = treenum_to_name[treenum]
     if qualifier is not None:
-        num += '/'+qualifier.attrib.get('UI')
-        text += '/'+qualifier.text
+        num += '/' +qualifier.id
+        text += '/'+ qualifier.name
     return '%s (%s)' % (num, text)
 
 def get_mesh_data():
@@ -135,228 +255,107 @@ def mesh_ancestors(treenum):
     parts = treenum.split('.')
     return [treenum[0]] + ['.'.join(parts[:i+1]) for i in range(len(parts))]
 
-def get_mesh_heading_texts(headings, PMID, options):
-    """Get list of strings representing given MeSH headings."""
-    # Each heading consists of a descriptor (DescriptorName element)
-    # and optionally one or more qualifiers (QualifierName elements).
-    # Any of these can be a major topic (MajorTopicYN attribute). When
-    # converting these to texts, the descriptor is replicated for each
-    # qualifier, and major topics are marked with an asterisk ("*") as
-    # in the PubMed view. If mesh_trees is specified in options, each
-    # descriptor is further replaced with the full set of its related
-    # and ancestor tree nodes.
-    if options.mesh_trees:
-        uid_to_node, treenum_name = get_mesh_data()
-    # expand to all (descriptor, qualifier) pairs
-    desc_quals = []
-    for heading in headings:
-        descriptor = find_only(heading, 'DescriptorName')
-        qualifiers = heading.findall('QualifierName')
-        if not qualifiers:
-            qualifiers = [None]
-        for q in qualifiers:
-            desc_quals.append((descriptor, q))
-    if not options.mesh_trees:
-        # direct desc/qual hits only.
-        return [mesh_text(d, q) for d, q in desc_quals]
-    else:
-        # expand descriptors to full trees.
-        # TODO: major topics -- need to trace through ancestor expansion
-        expanded = OrderedDict()
-        for d, q in desc_quals:
-            for treenum in uid_to_node[d.attrib.get('UI')]['tnum']:
-                for t in mesh_ancestors(treenum):
-                    expanded[(t, q)] = True
-        return [tree_text(t, q, treenum_name) for t, q in expanded]
-
-def get_abstract_text(abstract, PMID, options):
-    """Return the text of the given Abstract element."""
-    if abstract is None:
-        return ''
-
-    # Abstract should contain an AbstractText
-    abstractTexts = abstract.findall('AbstractText')
-    assert len(abstractTexts) != 0, "ERROR: %d abstract texts for PMID %s" % \
-                                 (len(abstractTexts), PMID)
-
-    # Basic case: exactly one <AbstractText>; just return the content.
-    if len(abstractTexts) == 1:
-        return abstractTexts[0].text
-
-    # Recent versions of PubMed data may contain multiple AbstractText
-    # elements for structured abstracts. In these cases, "label"
-    # attributes give structured abstract section headers and should
-    # be combined into the text.
-    assert len(abstractTexts) > 1, "INTERNAL ERROR"
-    if options.verbose:
-        print >> sys.stderr, "NOTE: multiple <AbstractText>s for %s" % PMID
-
-    sectionTexts = []
-    for at in abstractTexts:
-        # there may be instances of empty <AbstractText> elements in
-        # the data (see e.g. PMID 20619000 in the PubMed 2012
-        # baseline). Skip those with the special "empty" label
-        # "UNLABELLED" entirely; print the label only for the rest.
-        if ((at.text is None or at.text.strip() == "") and
-            at.attrib.get("Label","") == "UNLABELLED"):
-            if options.verbose:
-                print >> sys.stderr, "NOTE: skipping empty <AbstractText>s with label \"UNLABELLED\" in %s" % PMID
-            continue
-
-        t = ""
-        if "Label" not in at.attrib:
-            print >> sys.stderr, "Warning: missing 'Label' for multiple <AbstractText>s in %s" % PMID
-        elif at.attrib["Label"] == "UNLABELLED":
-            if options.verbose:
-                print >> sys.stderr, "NOTE: skipping <AbstractText> Label \"UNLABELLED\" in %s" % PMID
-        else:
-            t = at.attrib["Label"]
-            if not options.no_colon:
-                t += ":"
-
-        if at.text is None or at.text.strip() == "":
-            print >> sys.stderr, "NOTE: empty text for one of multiple <AbstractText>s in %s" % PMID
-        else:
-            if not t:
-                t = at.text
-            elif options.single_line_abstract:
-                t += " " + at.text
-            else:
-                t += "\n"+ at.text
-        sectionTexts.append(t)
-
-    if options.single_line_abstract:
-        return " ".join(sectionTexts)
-    else:
-        return "\n".join(sectionTexts)
-
-def skip_pmid(PMID, options, out=None):
+def skip_pmid(PMID, options):
     """Return True if PMID should be skipped by options, False otherwise."""
-    if out is None:
-        out = sys.stderr
     PMID = int(PMID)
     if ((options.PMID_greater_than is not None and
          PMID <= options.PMID_greater_than) or
         (options.PMID_lower_than is not None and
          PMID >= options.PMID_lower_than)):
-        if options.verbose:
-            print >> out, "Note: skipping %d" % PMID,
-            if options.PMID_greater_than is not None:
-                print >> out, "(lower limit %d)" % options.PMID_greater_than,
-            if options.PMID_lower_than is not None:
-                print >> out, "(upper limit %d)" % options.PMID_lower_than,
-            print >> out
+        warn('skipping %d (limits %d-%d)' %
+             (PMID, options.PMID_greater_than, options.PMID_lower_than))
         return True
     else:
         return False
 
-def output(outputDir, PMID, title, abstract, mesh, options):
-    # output to PMID.txt if output directory given, STDOUT if not.
-    if outputDir is not None:
-        out = open(os.path.join(outputDir, PMID+".txt"), "w")
+def write_citation(directory, citation, options):
+    text = citation.text(options)
+    if directory is None:
+        print >> utf8_stdout, text
     else:
-        out = sys.stdout
-    if not options.no_title:
-        print >> out, title.encode("UTF-8")
-    if not options.no_abstract:
-        if abstract:
-            print >> out, abstract.encode("UTF-8")
-        elif options.verbose:
-            print >> sys.stderr, "No abstract for %s" % PMID
-    if options.mesh_headings:
-        print >> out, '\t'.join(['MeSH Terms:'] + mesh)
-    if outputDir is not None:
-        out.close()
+        fn = os.path.join(directory, citation.PMID+'.txt')
+        with codecs.open(fn, 'wt', encoding='utf-8') as out:
+            print >> out, text
 
-def process(fn):
-    global options, output_count, skipped_count
+def strip_extensions(fn):
+    """Strip all extensions from file name."""
+    while True:
+        fn, ext = os.path.splitext(fn)
+        if not ext:
+            break
+    return fn
 
+def make_output_directory(fn, options):
     # create a directory for this package; we don't want to have all
     # the files in a single directory.
-    filename = os.path.basename(fn)
-    m = re.match(r'([A-Za-z0-9_-]+)\.xml(?:\.gz)?$', filename)
-    assert m, "ERROR: unexpected filename '%s'" % filename
-    filenamebase = m.group(1)
+    base = strip_extensions(os.path.basename(fn))
+    directory = os.path.join(options.output_dir, base)
+    try:
+        os.makedirs(directory)
+    except OSError, e:
+        error('Failed to create %s: %s' % (directory, str(e)))
+        raise
+    return directory
 
-    if options.output_dir != '-':
-        outputDir = os.path.join(options.output_dir, filenamebase)
-        try:
-            os.makedirs(outputDir)
-        except OSError, e:
-            error('Failed to create %s: %s' % (outputDir, str(e)))
-            raise
-    else:
-        outputDir = None    # use STDOUT
+def process_stream(stream, outdir, options):
+    global output_count, skipped_count
 
-    # if the extension suggests a zip, wrap
-    input = fn
-    gzipped = False
-    if re.search('\.gz$', fn):
-        input = gzip.GzipFile(fn)
-        gzipped = True
-
-    for event, element in ET.iterparse(input):
-        # we're only interested in tracking citation end events
-        if event != "end" or element.tag != "MedlineCitation":
+    for event, element in stream:
+        if event != 'end' or element.tag != 'MedlineCitation':
             continue
-        citation = element
 
-        # the citation element should have exactly one PMID child
-        PMID = find_only(citation, 'PMID').text
-
-        # if a PMID range has been specified, check that we're in it
+        PMID = find_only(element, 'PMID').text
         if skip_pmid(PMID, options):
             skipped_count += 1
-            citation.clear()    # Won't need this
+            element.clear()    # Won't need this
             continue
 
-        # likewise, there should be exactly one Article child and
-        # Article should have a single ArticleTitle. (Abstract is a
-        # bit trickier.)
-        article = find_only(citation, 'Article')
-        article_title = find_only(article, 'ArticleTitle')
-        abstract = find_abstract(citation, PMID, options)
-        mesh_headings = find_mesh_headings(citation, PMID, options)
-
-        # We've got all the elements we need. Now we just need the texts
-        text_title = article_title.text
-        text_abstract = get_abstract_text(abstract, PMID, options)
-        mesh_texts = get_mesh_heading_texts(mesh_headings, PMID, options)
-
-        output(outputDir, PMID, text_title, text_abstract, mesh_texts, options)
+        citation = Citation.from_xml(element)
+        write_citation(outdir, citation, options)
         output_count += 1
-        
-        # finally, clear out the used data; we don't need it anymore.
-        citation.clear()
 
-    # if we were wrapping a .gz, close the GzipFile
-    if gzipped:
-        input.close()
+        element.clear()
 
-def main(argv):
-    global options, output_count, skipped_count
-    options = arg = argparser().parse_args(argv[1:])
+def process(fn, options):
+    if options.output_dir == '-':
+        outdir = None    # use STDOUT
+    else:
+        outdir = make_output_directory(fn, options)
 
+    if not fn.endswith('.gz'):
+        process_stream(ET.iterparse(fn), outdir, options)
+    else:
+        with gzip.GzipFile(fn) as stream:
+            process_stream(ET.iterparse(stream), outdir, options)
+
+def process_options(argv):
+    options = argparser().parse_args(argv[1:])
     if options.verbose:
         logging.getLogger().setLevel(logging.INFO)
-
     if options.mesh_trees:
         options.mesh_headings = True     # -mt implies -mh
-
     if options.no_title and options.no_abstract and not options.mesh_headings:
         error('nothing to output (-nt and -na and not -mh)')
-        return 1
-
+        return None
     if options.PMID_greater_than is not None:
         options.PMID_greater_than = int(options.PMID_greater_than)
     if options.PMID_lower_than is not None:
         options.PMID_lower_than = int(options.PMID_lower_than)
+    return options
 
-    for fn in arg.files:
-        process(fn)
+def main(argv):
+    global output_count, skipped_count
 
-    print >> sys.stderr, "Done. Output texts for %d PMIDs, skipped %d." % (output_count, skipped_count)
+    options = process_options(argv)
+    if options is None:
+        return 1
+
+    for fn in options.files:
+        process(fn, options)
+
+    print 'Done. Output texts for %d PMIDs, skipped %d.' % (output_count,
+                                                            skipped_count)
     return 0
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     sys.exit(main(sys.argv))
