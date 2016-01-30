@@ -77,7 +77,7 @@ class Citation(object):
         return '\n'.join(lines)
 
     def to_dict(self, options=None):
-        obj = {}
+        obj = { '_id': self.PMID }
         if not options or not options.no_title:
             obj['title'] = self.title
         if not options or not options.no_abstract:
@@ -123,8 +123,10 @@ class AbstractSection(object):
         return self.label + self._separator(options) + self._text
 
     def to_dict(self, options=None):
+        label = self.label
+        label += ':' if label and (not options or not options.no_colon) else ''
         return {
-            'label': self.label,
+            'label': label,
             'text': self._text
         }
 
@@ -313,7 +315,8 @@ def write_citation(directory, citation, options):
     if directory is None:
         print >> utf8_stdout, text
     else:
-        fn = os.path.join(directory, citation.PMID+'.txt')
+        suffix = '.txt' if not options.json else '.json'
+        fn = os.path.join(directory, citation.PMID+suffix)
         with codecs.open(fn, 'wt', encoding='utf-8') as out:
             print >> out, text
 
