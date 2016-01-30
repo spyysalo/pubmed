@@ -7,6 +7,7 @@ import os
 import codecs
 import gzip
 import logging
+import json
 
 from collections import OrderedDict, namedtuple
 from logging import error, warn, info
@@ -24,8 +25,8 @@ def argparser():
     import argparse
 
     ap=argparse.ArgumentParser(description='Extract texts from PubMed XML.')
-    ap.add_argument('-o', '--output-dir', metavar='DIR', default='texts',
-                    help='Output directory (default "texts\", "-" for stdout)')
+    ap.add_argument('-j', '--json', default=False, action='store_true',
+                    help='Output JSON')
     ap.add_argument('-gt', '--PMID-greater-than', metavar='PMID', default=None,
                     help='Only process citations with PMIDs > PMID.')
     ap.add_argument('-lt', '--PMID-lower-than', metavar='PMID', default=None,
@@ -42,6 +43,8 @@ def argparser():
                     help='Do not output titles.')
     ap.add_argument('-nc', '--no-colon', default=False, action='store_true',
                     help='Do not add a colon to structured abstract headings.')
+    ap.add_argument('-o', '--output-dir', metavar='DIR', default='texts',
+                    help='Output directory (default "texts\", "-" for stdout)')
     ap.add_argument('-v', '--verbose', default=False, action='store_true',
                     help='Verbose output.')
     ap.add_argument('files', metavar='FILE', nargs='+',
@@ -72,6 +75,16 @@ class Citation(object):
             lines.append('\t'.join(['MeSH Terms:'] +
                                    [m.text(options) for m in self.mesh]))
         return '\n'.join(lines)
+
+    def to_dict(self, options=None):
+        obj = {}
+        if not options or not options.no_title:
+            obj['title'] = self.title
+        if not options or not options.no_abstract:
+            obj['abstract'] = [s.to_dict(options) for s in self.sections]
+        if options and options.mesh_headings:
+            obj['mesh'] = [m.to_dict(options) for m in self.mesh]
+        return obj
 
     @classmethod
     def from_xml(cls, element):
@@ -108,6 +121,12 @@ class AbstractSection(object):
 
     def text(self, options=None):
         return self.label + self._separator(options) + self._text
+
+    def to_dict(self, options=None):
+        return {
+            'label': self.label,
+            'text': self._text
+        }
 
     @classmethod
     def from_xml(cls, element, PMID):
@@ -168,6 +187,23 @@ class MeshHeading(object):
             return '\t'.join(self.heading_texts())
         else:
             return '\t'.join(self.tree_numbers())
+
+    def to_dict(self, options=None):
+        return {
+            'descriptor': {
+                'id': self.descriptor.id,
+                'name': self.descriptor.name,
+                'major': self.descriptor.major
+            },
+            'qualifiers': [
+                {
+                    'id': qual.id,
+                    'name': qual.name,
+                    'major': qual.major
+                }
+                for qual in self.qualifiers
+            ]
+        }
 
     @classmethod
     def from_xml(cls, element):
@@ -269,7 +305,11 @@ def skip_pmid(PMID, options):
         return False
 
 def write_citation(directory, citation, options):
-    text = citation.text(options)
+    if not options.json:
+        text = citation.text(options)
+    else:
+        text = json.dumps(citation.to_dict(options), sort_keys=True,
+                          indent=2, separators=(',', ': '))
     if directory is None:
         print >> utf8_stdout, text
     else:
