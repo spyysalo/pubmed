@@ -95,9 +95,9 @@ class Descriptor(object):
         name_element = find_only(element, 'DescriptorName')
         name = find_only(name_element, 'String').text
         try:
-            scope = find_only(element, 'ScopeNote').text
+            scope = find_only(element, './/ScopeNote').text
         except Exception, e:
-            info('no scope note %s (%s)' % (uid, name))
+            info('no scope note for %s (%s)' % (uid, name))
             scope = None
         try:
             tree_number_list_element = find_only(element, 'TreeNumberList')
