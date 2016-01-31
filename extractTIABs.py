@@ -179,7 +179,7 @@ class MeshHeading(object):
         expanded = OrderedDict()
         # TODO: trace major topics through ancestor expansion
         for d, q in self.descriptor_qualifier_pairs():
-            for treenum in uid_to_node[d.id]['tnum']:
+            for treenum in uid_to_node[d.id]['treenums']:
                 for t in mesh_ancestors(treenum):
                     expanded[(t, q)] = True
         return [tree_number_text(t, q, treenum_name) for t, q in expanded]
@@ -191,6 +191,8 @@ class MeshHeading(object):
             return '\t'.join(self.tree_numbers())
 
     def to_dict(self, options=None):
+        if options.mesh_trees:
+            raise NotImplementedError('-mt not supported in JSON output')
         return {
             'descriptor': {
                 'id': self.descriptor.id,
@@ -278,7 +280,7 @@ def get_mesh_data():
         treenum_to_name = {}
         for uid, obj in mesh.iteritems():
             name = obj['name']
-            for tnum in obj['tnum']:
+            for tnum in obj['treenums']:
                 treenum_to_name[tnum] = name
         get_mesh_data._cache = mesh, treenum_to_name
     return get_mesh_data._cache
