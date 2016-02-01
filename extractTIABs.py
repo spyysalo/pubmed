@@ -97,7 +97,12 @@ class Citation(object):
         else:
             abstractTexts = abstract.findall('AbstractText')
             assert len(abstractTexts), 'ERROR: no <AbstractText> for %s' % PMID
-        sections = [AbstractSection.from_xml(a, PMID) for a in abstractTexts]
+        sections = []
+        for a in abstractTexts:
+            try:
+                sections.append(AbstractSection.from_xml(a, PMID))
+            except EmptySection, e:
+                warn(str(e))
         mesh_headings = find_mesh_headings(element, PMID)
         mesh = [MeshHeading.from_xml(h) for h in mesh_headings]
         return cls(PMID, title, sections, mesh)
