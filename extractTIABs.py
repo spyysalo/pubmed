@@ -43,6 +43,8 @@ def argparser():
                     help='Do not output titles.')
     ap.add_argument('-nc', '--no-colon', default=False, action='store_true',
                     help='Do not add a colon to structured abstract headings.')
+    ap.add_argument('-s', '--substances', default=False, action='store_true',
+                    help='Output substances (chemicals).')
     ap.add_argument('-o', '--output-dir', metavar='DIR', default='texts',
                     help='Output directory (default "texts\", "-" for stdout)')
     ap.add_argument('-v', '--verbose', default=False, action='store_true',
@@ -54,11 +56,12 @@ def argparser():
 class Citation(object):
     """Represents a PubMed citation."""
 
-    def __init__(self, PMID, title, sections, mesh):
+    def __init__(self, PMID, title, sections, mesh, chemicals):
         self.PMID = PMID
         self.title = title
         self.sections = sections
         self.mesh = mesh
+        self.chemicals = chemicals
 
     def abstract_text(self, options=None):
         section_texts = [s.text(options) for s in self.sections]
@@ -74,6 +77,9 @@ class Citation(object):
         if options and options.mesh_headings:
             lines.append('\t'.join(['MeSH Terms:'] +
                                    [m.text(options) for m in self.mesh]))
+        if options and options.substances:
+            lines.append('\t'.join(['Substances:'] +
+                                   [c.text(options) for c in self.chemicals]))
         return '\n'.join(lines)
 
     def to_dict(self, options=None):
@@ -84,6 +90,8 @@ class Citation(object):
             obj['abstract'] = [s.to_dict(options) for s in self.sections]
         if options and options.mesh_headings:
             obj['mesh'] = [m.to_dict(options) for m in self.mesh]
+        if options and options.substances:
+            obj['chemicals'] = [c.to_dict(options) for c in self.chemicals]
         return obj
 
     @classmethod
@@ -105,7 +113,9 @@ class Citation(object):
                 warn(str(e))
         mesh_headings = find_mesh_headings(element, PMID)
         mesh = [MeshHeading.from_xml(h) for h in mesh_headings]
-        return cls(PMID, title, sections, mesh)
+        chemical_list = find_chemicals(element, PMID)
+        chemicals = [Chemical.from_xml(c) for c in chemical_list]
+        return cls(PMID, title, sections, mesh, chemicals)
 
 class EmptySection(Exception):
     pass
@@ -227,6 +237,33 @@ class MeshHeading(object):
             qualifiers.append(Qualifier(id_, qual.text, major))
         return cls(descriptor, qualifiers)
 
+class Chemical(object):
+    """Represents a Chemical entry with a ID, name, and registry number."""
+
+    def __init__(self, id_, name, regnum):
+        self.id = id_
+        self.name = name
+        self.regnum = regnum
+
+    def text(self, options=None):
+        # Note: registry number not represented
+        return '%s (%s)' % (self.id, self.name)
+
+    def to_dict(self, options=None):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'regnum': self.regnum
+        }
+
+    @classmethod
+    def from_xml(cls, element):
+        id_name = find_only(element, 'NameOfSubstance')
+        id_ = id_name.attrib.get('UI')
+        name = id_name.text
+        regnum = find_only(element, 'RegistryNumber').text
+        return cls(id_, name, regnum)
+
 def find_only(element, match):
     """Return the only matching child of the given element.
 
@@ -269,6 +306,18 @@ def find_mesh_headings(citation, PMID, options=None):
     assert len(heading_lists) == 1, 'Multiple MeshHeadingLists for %s' % PMID
     headings = heading_lists[0]
     return headings.findall('MeshHeading')
+
+def find_chemicals(citation, PMID, options=None):
+    """Return list of Chemical elements in given citation."""
+    if options and not options.substances:
+        return []    # avoid unnecessary load
+    chemical_lists = citation.findall('ChemicalList')
+    if not chemical_lists:
+        info('No chemical list for %s' % PMID)
+        return []
+    assert len(chemical_lists) == 1, 'Multiple ChemicalLists for %s' % PMID
+    chemicals = chemical_lists[0]
+    return chemicals.findall('Chemical')
 
 def tree_number_text(treenum, qualifier, treenum_to_name):
     """Return human-readable text for MeSH treenumber."""
