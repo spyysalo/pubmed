@@ -7,8 +7,11 @@ import os
 import codecs
 import gzip
 import logging
+import tarfile
 import json
 
+from time import time
+from StringIO import StringIO
 from collections import OrderedDict, namedtuple
 from logging import error, warn, info
 
@@ -51,6 +54,8 @@ def argparser():
                     help='Output directory (default "texts\", "-" for stdout)')
     ap.add_argument('-v', '--verbose', default=False, action='store_true',
                     help='Verbose output.')
+    ap.add_argument('-z', '--tgz', default=False, action="store_true",
+                    help='Output .tar.gz file')
     ap.add_argument('files', metavar='FILE', nargs='+',
                     help='Input PubMed distribution XML file(s).')
     return ap
@@ -366,7 +371,6 @@ def skip_pmid(PMID, options):
 
 def to_ascii(s):
     """Map string to ASCII"""
-    from StringIO import StringIO
     import unicode2ascii
     if to_ascii.mapping is None:
         mapfn = os.path.join(os.path.dirname(__file__), 'entities.dat')
@@ -397,7 +401,15 @@ def citation_to_ascii(citation):
         section._text = to_ascii(section._text)
         section.label = to_ascii(section.label)
 
-def write_citation(directory, citation, options):
+def save_in_tar(tar, name, text):
+    info = tar.tarinfo(name)
+    sio = StringIO(text.encode('utf-8'))
+    sio.seek(0)
+    info.size = sio.len
+    info.mtime = time()
+    tar.addfile(info, sio)
+
+def write_citation(directory, name, outfile, citation, options):
     if options.ascii:
         citation_to_ascii(citation)
     if not options.json:
@@ -410,8 +422,13 @@ def write_citation(directory, citation, options):
     else:
         suffix = '.txt' if not options.json else '.json'
         fn = os.path.join(directory, citation.PMID+suffix)
-        with codecs.open(fn, 'wt', encoding='utf-8') as out:
-            print >> out, text
+        if options.tgz:
+            fn = os.path.join(os.path.basename(name).split('.')[0],
+                              os.path.basename(fn))
+            save_in_tar(outfile, fn, text)
+        else:
+            with codecs.open(fn, 'wt', encoding='utf-8') as out:
+                print >> out, text
 
 def strip_extensions(fn):
     """Strip all extensions from file name."""
@@ -425,7 +442,13 @@ def make_output_directory(fn, options):
     # create a directory for this package; we don't want to have all
     # the files in a single directory.
     base = strip_extensions(os.path.basename(fn))
-    directory = os.path.join(options.output_dir, base)
+    if not options.tgz:
+        directory = os.path.join(options.output_dir, base)
+    else:
+        # tgz: create output_dir only, no subdirs
+        directory = options.output_dir
+        if os.path.isdir(directory):
+            return directory
     try:
         os.makedirs(directory)
     except OSError, e:
@@ -433,8 +456,17 @@ def make_output_directory(fn, options):
         raise
     return directory
 
-def process_stream(stream, outdir, options):
+def tarname(outdir, name):
+    base = os.path.basename(name).split('.')[0]
+    return os.path.join(outdir, base + '.tar.gz')
+
+def process_stream(stream, name, outdir, options):
     global output_count, skipped_count
+
+    if options.tgz:
+        outfile = tarfile.open(tarname(outdir, name), 'w:gz') # TODO use `with`
+    else:
+        outfile = None
 
     for event, element in stream:
         if event != 'end' or element.tag != 'MedlineCitation':
@@ -447,10 +479,13 @@ def process_stream(stream, outdir, options):
             continue
 
         citation = Citation.from_xml(element)
-        write_citation(outdir, citation, options)
+        write_citation(outdir, name, outfile, citation, options)
         output_count += 1
 
         element.clear()
+
+    if options.tgz:
+        outfile.close()
 
 def process(fn, options):
     if options.output_dir == '-':
@@ -459,10 +494,10 @@ def process(fn, options):
         outdir = make_output_directory(fn, options)
 
     if not fn.endswith('.gz'):
-        process_stream(ET.iterparse(fn), outdir, options)
+        process_stream(ET.iterparse(fn), fn, outdir, options)
     else:
         with gzip.GzipFile(fn) as stream:
-            process_stream(ET.iterparse(stream), outdir, options)
+            process_stream(ET.iterparse(stream), fn, outdir, options)
 
 def process_options(argv):
     options = argparser().parse_args(argv[1:])
