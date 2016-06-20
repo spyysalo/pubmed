@@ -25,6 +25,8 @@ def argparser():
     import argparse
 
     ap=argparse.ArgumentParser(description='Extract texts from PubMed XML.')
+    ap.add_argument('-a', '--ascii', default=False, action='store_true',
+                    help='Map text to ASCII')
     ap.add_argument('-j', '--json', default=False, action='store_true',
                     help='Output JSON')
     ap.add_argument('-gt', '--PMID-greater-than', metavar='PMID', default=None,
@@ -362,7 +364,42 @@ def skip_pmid(PMID, options):
     else:
         return False
 
+def to_ascii(s):
+    """Map string to ASCII"""
+    from StringIO import StringIO
+    import unicode2ascii
+    if to_ascii.mapping is None:
+        mapfn = os.path.join(os.path.dirname(__file__), 'entities.dat')
+        with codecs.open(mapfn, encoding='utf-8') as f:
+            to_ascii.mapping = unicode2ascii.read_mapping(f, mapfn)
+    out = StringIO()
+    unicode2ascii.process([s], out, to_ascii.mapping)
+    return out.getvalue()
+to_ascii.mapping = None
+
+def write_to_ascii_statistics(out=sys.stderr):
+    from unicode2ascii import missing_mapping
+    if not missing_mapping:
+        return    # nothing missing
+    print >> out, "Characters without mapping\t%d" % sum(missing_mapping.values())
+    sk = missing_mapping.keys()
+    sk.sort(lambda a,b : cmp(missing_mapping[b],missing_mapping[a]))
+    for c in sk:
+        try:
+            print >> out, "\t%.4X\t%s\t%d" % (ord(c), c.encode("utf-8"), missing_mapping[c])
+        except:
+            print >> out, "\t%.4X\t?\t%d" % (ord(c), missing_mapping[c])
+
+def citation_to_ascii(citation):
+    """Map citation text content to ASCII"""
+    citation.title = to_ascii(citation.title)
+    for section in citation.sections:
+        section._text = to_ascii(section._text)
+        section.label = to_ascii(section.label)
+
 def write_citation(directory, citation, options):
+    if options.ascii:
+        citation_to_ascii(citation)
     if not options.json:
         text = citation.text(options)
     else:
@@ -452,8 +489,12 @@ def main(argv):
     for fn in options.files:
         process(fn, options)
 
-    print 'Done. Output texts for %d PMIDs, skipped %d.' % (output_count,
-                                                            skipped_count)
+    if options.ascii:
+        write_to_ascii_statistics(sys.stderr)
+
+    print >> sys.stderr, 'Done. Output texts for %d PMIDs, skipped %d.' % (
+        output_count, skipped_count)
+
     return 0
 
 if __name__ == '__main__':
