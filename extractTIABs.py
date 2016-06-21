@@ -87,7 +87,10 @@ class Citation(object):
         if options and options.substances:
             lines.append('\t'.join(['Substances:'] +
                                    [c.text(options) for c in self.chemicals]))
-        return '\n'.join(lines)
+        text = '\n'.join(lines)
+        if not text.endswith('\n'):
+            text = text + '\n'
+        return text
 
     def to_dict(self, options=None):
         obj = { '_id': self.PMID }
