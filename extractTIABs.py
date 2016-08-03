@@ -15,6 +15,8 @@ from StringIO import StringIO
 from collections import OrderedDict, namedtuple
 from logging import error, warn, info
 
+from gtbtokenize import tokenize
+
 try:
     import xml.etree.ElementTree as ET
 except ImportError:
@@ -50,6 +52,10 @@ def argparser():
                     help='Do not output titles.')
     ap.add_argument('-nc', '--no-colon', default=False, action='store_true',
                     help='Do not add a colon to structured abstract headings.')
+    ap.add_argument('-ss', '--ssplit', default=False, action='store_true',
+                    help='Perform sentence splitting.')
+    ap.add_argument('-tt', '--tokenize', default=False, action='store_true',
+                    help='Perform tokenization')
     ap.add_argument('-s', '--substances', default=False, action='store_true',
                     help='Output substances (chemicals).')
     ap.add_argument('-o', '--output-dir', metavar='DIR', default='texts',
@@ -409,6 +415,24 @@ def citation_to_ascii(citation):
         section._text = to_ascii(section._text)
         section.label = to_ascii(section.label)
 
+def citation_ssplit(citation):
+    """Split sentences in citation text content."""
+    if citation_ssplit.ssplitter is None:
+        from ssplit import ssplitter
+        citation_ssplit.ssplitter = ssplitter
+    ssplitter = citation_ssplit.ssplitter
+    citation.title = ssplitter(citation.title)
+    for section in citation.sections:
+        section._text = ssplitter(section._text)
+        section.label = ssplitter(section.label)
+citation_ssplit.ssplitter = None
+
+def citation_tokenize(citation):
+    citation.title = tokenize(citation.title)
+    for section in citation.sections:
+        section._text = tokenize(section._text)
+        section.label = tokenize(section.label)
+
 def save_in_tar(tar, name, text):
     info = tar.tarinfo(name)
     sio = StringIO(text.encode('utf-8'))
@@ -420,6 +444,10 @@ def save_in_tar(tar, name, text):
 def write_citation(directory, name, outfile, citation, options):
     if options.ascii:
         citation_to_ascii(citation)
+    if options.ssplit:
+        citation_ssplit(citation)
+    if options.tokenize:
+        citation_tokenize(citation)
     if not options.json:
         text = citation.text(options)
     else:
@@ -527,6 +555,9 @@ def process_options(argv):
         logging.getLogger().setLevel(logging.INFO)
     if options.mesh_trees:
         options.mesh_headings = True     # -mt implies -mh
+    if options.tokenize and not options.ssplit:
+        # Tokenizer assumes sentence-split input
+        warn('--ssplit recommended with --tokenize')
     if options.no_title and options.no_abstract and not options.mesh_headings:
         error('nothing to output (-nt and -na and not -mh)')
         return None
