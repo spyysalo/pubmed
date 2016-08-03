@@ -30,6 +30,8 @@ def argparser():
     ap=argparse.ArgumentParser(description='Extract texts from PubMed XML.')
     ap.add_argument('-a', '--ascii', default=False, action='store_true',
                     help='Map text to ASCII')
+    ap.add_argument('-i', '--ids', metavar='FILE', default=None,
+                    help='Only process citations with IDs in FILE.')
     ap.add_argument('-j', '--json', default=False, action='store_true',
                     help='Output JSON')
     ap.add_argument('-gt', '--PMID-greater-than', metavar='PMID', default=None,
@@ -366,8 +368,11 @@ def skip_pmid(PMID, options):
          PMID <= options.PMID_greater_than) or
         (options.PMID_lower_than is not None and
          PMID >= options.PMID_lower_than)):
-        warn('skipping %d (limits %d-%d)' %
+        info('skipping %d (limits %d-%d)' %
              (PMID, options.PMID_greater_than, options.PMID_lower_than))
+        return True
+    elif options.ids is not None and PMID not in options.ids:
+        info('skipping %d (not in given IDs)' % PMID)
         return True
     else:
         return False
@@ -502,6 +507,20 @@ def process(fn, options):
         with gzip.GzipFile(fn) as stream:
             process_stream(ET.iterparse(stream), fn, outdir, options)
 
+def read_ids(fn):
+    ids = set()
+    with open(fn) as f:
+        for ln, l in enumerate(f, start=1):
+            l = l.strip()
+            try:
+                i = int(l)
+            except ValueError:
+                raise ValueError('Error on line %d in %s: not an ID: %s' % (
+                    ln, fn, l))
+            ids.add(i)
+    info('read %d IDs from %s' % (len(ids), fn))
+    return ids
+
 def process_options(argv):
     options = argparser().parse_args(argv[1:])
     if options.verbose:
@@ -515,6 +534,8 @@ def process_options(argv):
         options.PMID_greater_than = int(options.PMID_greater_than)
     if options.PMID_lower_than is not None:
         options.PMID_lower_than = int(options.PMID_lower_than)
+    if options.ids is not None:
+        options.ids = read_ids(options.ids)
     return options
 
 def main(argv):
