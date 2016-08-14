@@ -302,11 +302,6 @@ def tokens(s):
 
     i, j = 0, 0
     while i < len(s) and j < len(t):
-        # TODO: remove debugging code
-#         import sys
-#         print >> sys.stderr, "S:", s, i, len(s)
-#         print >> sys.stderr, "W:", t, j, len(t)
-#         print >> sys.stderr
         if s[i] == t[j]:
             i += 1
             j += 1
@@ -330,20 +325,6 @@ def tokens(s):
         assert s[i].isspace, "INTERNAL ERROR"
         t.append(s[i])
         i += 1
-
-#     # split by space initially, eliminate empties
-#     initial = [t for t in re.split('(\s+)', s) if t]
-
-#     # split apart token-final punctuation
-#     punct_split = []
-#     for t in initial:
-#         m = re.match(r'^(.*)([.,:;])$', t) 
-#         if m:
-#             punct_split.extend(m.groups())
-#         else:
-#             punct_split.append(t)
-
-#     t = punct_split
 
     if DEBUG_GTB_TOKENIZATION:
         assert ''.join(t) == orig
