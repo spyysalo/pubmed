@@ -145,10 +145,18 @@ class AbstractSection(object):
         self._text = text if text is not None else ''
         self.label = label if label is not None else ''
 
+    def _colon(self, options=None):
+        if options and options.no_colon:
+            return ''
+        elif options and options.tokenize:
+            return ' :'
+        else:
+            return ':'
+
     def _separator(self, options=None):
         if not self.label or not self._text:
             return ''
-        colon = ':' if not options or not options.no_colon else ''
+        colon = self._colon(options)
         space = '\n' if not options or not options.single_line_abstract else ' '
         return colon + space
 
@@ -157,7 +165,7 @@ class AbstractSection(object):
 
     def to_dict(self, options=None):
         label = self.label
-        label += ':' if label and (not options or not options.no_colon) else ''
+        label += self._colon(options) if label else ''
         return {
             'label': label,
             'text': self._text
@@ -427,11 +435,14 @@ def citation_ssplit(citation):
         section.label = ssplitter(section.label)
 citation_ssplit.ssplitter = None
 
+def tokenize_multiline(text):
+    return '\n'.join(tokenize(s) for s in text.split('\n'))
+
 def citation_tokenize(citation):
-    citation.title = tokenize(citation.title)
+    citation.title = tokenize_multiline(citation.title)
     for section in citation.sections:
-        section._text = tokenize(section._text)
-        section.label = tokenize(section.label)
+        section._text = tokenize_multiline(section._text)
+        section.label = tokenize_multiline(section.label)
 
 def save_in_tar(tar, name, text):
     info = tar.tarinfo(name)
