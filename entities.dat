@@ -68,7 +68,8 @@
 00AE	(R)
 # 00AF	<MACRON> (overline)
 00AF	 
-00B0	degrees
+# '\b' triggers space insertion at word boundaries
+00B0	\bdegrees\b
 00B1	+/-
 # 00B2, 00B3: superscript "2", "3"
 00B2	(2)

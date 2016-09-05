@@ -10,6 +10,8 @@ import os
 import codecs
 import re
 
+from itertools import tee, izip, chain
+
 verbose = True
 
 # The name of the file from which to read the replacement. Each line
@@ -30,6 +32,12 @@ def wide_unichr(i):
         return unichr(i)
     except ValueError:
         return (r'\U' + hex(i)[2:].zfill(8)).decode('unicode-escape')
+
+def pairwise(iterable):
+    "s -> (s0,s1), (s1,s2), (s2, s3), ... (sN, None)"
+    a, b = tee(iterable)
+    next(b, None)
+    return izip(a, chain(b, (None, )))
 
 def read_mapping(f, fn="mapping data"):
     """
@@ -58,12 +66,37 @@ def read_mapping(f, fn="mapping data"):
         c = wide_unichr(int(c, 16))
         assert c not in mapping or mapping[c] == r, "ERROR: conflicting mappings for %.4X: '%s' and '%s'" % (ord(c), mapping[c], r)
 
-        # exception: literal '\n' maps to newline
+        # exceptions: literal '\n' maps to newline, initial and terminal
+        # '\b' map to backspace (see map_character)
         if r == '\\n':
             r = '\n'
+        if r[:2] == '\\b':
+            r = '\b'+r[2:]
+        if r[-2:] == '\\b':
+            r = r[:-2]+'\b'
 
         mapping[c] = r
 
+    return mapping
+
+word_char = re.compile(r'^\w$', re.U)
+
+def map_character(prev, char, next_, mapping):
+    """
+    Maps character char to mapping where prev and next_ are the characters
+    preceding and following c, handling boundary space insertion.
+    """
+    if not mapping:
+        return mapping
+    # Boundary space insertion: if mapping begins (or ends) with '\b',
+    # that character is replaced with a space if the previous (next)
+    # character is a word character and removed otherwise.
+    if mapping[0] == '\b':
+        space = ' ' if prev and word_char.match(prev) else ''
+        mapping = space + mapping[1:]
+    if mapping and mapping[-1] == '\b':
+        space = ' ' if next_ and word_char.match(next_) else ''
+        mapping = mapping[:-1] + space
     return mapping
 
 def process(f, out, mapping):
@@ -75,17 +108,20 @@ def process(f, out, mapping):
     global map_count, missing_mapping
 
     for line in f:
-        for c in line:
+        prev = None
+        for c, next_ in pairwise(line):
+            curr = c
             if ord(c) >= 128:
                 # higher than 7-bit ASCII, might wish to map
                 if c in mapping:
                     map_count[c] = map_count.get(c,0)+1
-                    c = mapping[c]
+                    c = map_character(prev, c, next_, mapping[c])
                 else:
                     missing_mapping[c] = missing_mapping.get(c,0)+1
                     # escape into numeric Unicode codepoint
                     c = "<%.4X>" % ord(c)
             out.write(c.encode("utf-8"))
+            prev = curr
 
 def print_summary(out, mapping):
     """
