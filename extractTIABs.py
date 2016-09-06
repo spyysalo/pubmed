@@ -475,7 +475,7 @@ def write_citation(directory, name, outfile, citation, options):
             save_in_tar(outfile, fn, text)
         else:
             with codecs.open(fn, 'wt', encoding='utf-8') as out:
-                print >> out, text
+                out.write(text)
 
 def strip_extensions(fn):
     """Strip all extensions from file name."""
