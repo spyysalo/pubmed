@@ -154,10 +154,15 @@ class AbstractSection(object):
             return ':'
 
     def _separator(self, options=None):
-        if not self.label or not self._text:
+        if not self.label:
             return ''
         colon = self._colon(options)
-        space = '\n' if not options or not options.single_line_abstract else ' '
+        if not self._text or self._text.isspace():
+            space = ''
+        elif not options or not options.single_line_abstract:
+            space = '\n'
+        else:
+            space = ' '
         return colon + space
 
     def text(self, options=None):
