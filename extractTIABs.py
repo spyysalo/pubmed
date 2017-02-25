@@ -26,6 +26,9 @@ utf8_stdout = codecs.getwriter('utf8')(sys.stdout)
 
 output_count, skipped_count = 0, 0
 
+class FormatError(Exception):
+    pass
+
 def argparser():
     import argparse
 
@@ -117,6 +120,10 @@ class Citation(object):
         PMID = find_only(element, 'PMID').text
         article = find_only(element, 'Article')
         title = find_only(article, 'ArticleTitle').text
+        if not title:
+            title = find_only(article, 'VernacularTitle').text    # fallback
+        if not title:
+            raise FormatError('missing title for {}'.format(PMID))
         abstract = find_abstract(element, PMID)
         if abstract is None:
             abstractTexts = []
@@ -386,6 +393,8 @@ def skip_pmid(PMID, options):
 def to_ascii(s):
     """Map string to ASCII"""
     import unicode2ascii
+    if not s:
+        return s
     if to_ascii.mapping is None:
         mapfn = os.path.join(os.path.dirname(__file__), 'entities.dat')
         with codecs.open(mapfn, encoding='utf-8') as f:
