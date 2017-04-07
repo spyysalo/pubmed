@@ -587,7 +587,8 @@ def process_options(argv):
     if options.tokenize and not options.ssplit:
         # Tokenizer assumes sentence-split input
         warn('--ssplit recommended with --tokenize')
-    if options.no_title and options.no_abstract and not options.mesh_headings:
+    if (options.no_title and options.no_abstract and
+        not (options.mesh_headings or options.include_id)):
         error('nothing to output (-nt and -na and not -mh)')
         return None
     if options.PMID_greater_than is not None:
