@@ -45,6 +45,8 @@ def argparser():
                     help='Only process citations with PMIDs < PMID.')
     ap.add_argument('-sa', '--single-line-abstract', default=False,
                     action='store_true', help='Output abstract on single line.')
+    ap.add_argument('-ii', '--include-id', default=False,
+                    action='store_true', help='Include PMID in ouput.')
     ap.add_argument('-mh', '--mesh-headings', default=False,
                     action='store_true', help='Output MeSH headings.')
     ap.add_argument('-mt', '--mesh-trees', default=False, action='store_true',
@@ -88,6 +90,8 @@ class Citation(object):
 
     def text(self, options=None):
         lines = []
+        if options and options.include_id:
+            lines.append(self.PMID)
         if not options or not options.no_title:
             lines.append(self.title)
         if not options or not options.no_abstract:
