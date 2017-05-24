@@ -26,6 +26,21 @@ utf8_stdout = codecs.getwriter('utf8')(sys.stdout)
 
 output_count, skipped_count = 0, 0
 
+month_abbr_map = {
+    'Jan': '01',
+    'Feb': '02',
+    'Mar': '03',
+    'Apr': '04',
+    'May': '05',
+    'Jun': '06',
+    'Jul': '07',
+    'Aug': '08',
+    'Sep': '09',
+    'Oct': '10',
+    'Nov': '11',
+    'Dec': '12',
+}
+
 class FormatError(Exception):
     pass
 
@@ -47,6 +62,8 @@ def argparser():
                     action='store_true', help='Output abstract on single line.')
     ap.add_argument('-ii', '--include-id', default=False,
                     action='store_true', help='Include PMID in ouput.')
+    ap.add_argument('-m', '--metadata', default=False, action='store_true',
+                    help='Output metadata (e.g. publication date)')
     ap.add_argument('-mh', '--mesh-headings', default=False,
                     action='store_true', help='Output MeSH headings.')
     ap.add_argument('-mt', '--mesh-trees', default=False, action='store_true',
@@ -76,12 +93,13 @@ def argparser():
 class Citation(object):
     """Represents a PubMed citation."""
 
-    def __init__(self, PMID, title, sections, mesh, chemicals):
+    def __init__(self, PMID, title, sections, mesh, chemicals, metadata):
         self.PMID = PMID
         self.title = title
         self.sections = sections
         self.mesh = mesh
         self.chemicals = chemicals
+        self.metadata = metadata
 
     def abstract_text(self, options=None):
         section_texts = [s.text(options) for s in self.sections]
@@ -102,6 +120,9 @@ class Citation(object):
         if options and options.substances:
             lines.append('\t'.join(['Substances:'] +
                                    [c.text(options) for c in self.chemicals]))
+        if options and options.metadata:
+            for k, v in self.metadata.items():
+                lines.append('{}\t{}'.format(k, v))
         text = '\n'.join(lines)
         if not text.endswith('\n'):
             text = text + '\n'
@@ -117,6 +138,11 @@ class Citation(object):
             obj['mesh'] = [m.to_dict(options) for m in self.mesh]
         if options and options.substances:
             obj['chemicals'] = [c.to_dict(options) for c in self.chemicals]
+        if options and options.metadata:
+            for k, v in self.metadata.items():
+                k = k.lower()    # consistency w/JSON from esummary API
+                assert k not in obj, 'internal error: metadata clobbers %s' % k
+                obj[k] = v
         return obj
 
     @classmethod
@@ -144,7 +170,8 @@ class Citation(object):
         mesh = [MeshHeading.from_xml(h) for h in mesh_headings]
         chemical_list = find_chemicals(element, PMID)
         chemicals = [Chemical.from_xml(c) for c in chemical_list]
-        return cls(PMID, title, sections, mesh, chemicals)
+        metadata = find_metadata(element, PMID)
+        return cls(PMID, title, sections, mesh, chemicals, metadata)
 
 class EmptySection(Exception):
     pass
@@ -360,6 +387,69 @@ def find_chemicals(citation, PMID, options=None):
     assert len(chemical_lists) == 1, 'Multiple ChemicalLists for %s' % PMID
     chemicals = chemical_lists[0]
     return chemicals.findall('Chemical')
+
+def date_string(element, PMID, expect_full_date=True):
+    """Format <Date*> element content as string."""
+    values = {}
+    for e in element:
+        if e.tag in values:
+            warn('duplicate %s in %s in %s' % (e.tag, element.tag, PMID))
+        else:
+            values[e.tag] = e.text
+    date = values.pop('MedlineDate', None)
+    year = values.pop('Year', None)
+    month = values.pop('Month', None)
+    day = values.pop('Day', None)
+    values.pop('Season', None)    # ignore Season
+    if values:
+        warn('extra data in %s in %s: %s' % (
+            element.tag, PMID,
+            ' '.join(['%s="%s"' % (k, v) for k, v in values.items()])))
+    if month is not None and not month.isdigit():
+        if month in month_abbr_map:
+            month = month_abbr_map[month]    # "Jan" -> "01" etc.
+        else:
+            warn('unexpected month format %s in %s' % (month, PMID))
+    if date is not None:
+        if year or month or day:
+            warn('extra data w/MedlineDate in %s in %s' % (element.tag, PMID))
+        return date
+    elif year is None:
+        warn('missing <Year> in %s in %s' % (element.tag, PMID))
+        return ''
+    elif month is None:
+        if expect_full_date:
+            warn('missing <Month> in %s in %s' % (element.tag, PMID))
+        return year
+    elif day is None:
+        if expect_full_date:
+            warn('missing <Day> in %s in %s' % (element.tag, PMID))
+        return '%s-%s' % (year, month)
+    else:
+        return '%s-%s-%s' % (year, month, day)    # https://xkcd.com/1179/
+
+def find_metadata(citation, PMID, options=None):
+    """Return dictionary of citation metadata."""
+    if options and not options.metadata:
+        return {}    # avoid unnecessary load
+    metadata = OrderedDict()
+
+    # PubMed citation dates
+    for date in ('DateCreated', 'DateCompleted'):
+        element = find_only(citation, date)
+        metadata[date] = date_string(element, PMID)
+
+    # Article dates
+    article = find_only(citation, 'Article')
+    pubdate = find_only(article, './/PubDate')    # recursive
+    metadata['PubDate'] = date_string(pubdate, PMID, expect_full_date=False)
+    for e in article.findall('ArticleDate'):
+        datetype = e.attrib.get('DateType')
+        if datetype == 'Electronic':
+            metadata['EPubDate'] = date_string(e, PMID)
+        else:
+            warn('unknown <ArticleDate DateType="%s"> in %s' % (datetype, PMID))
+    return metadata
 
 def tree_number_text(treenum, qualifier, treenum_to_name):
     """Return human-readable text for MeSH treenumber."""
@@ -612,7 +702,7 @@ def main(argv):
     if options.ascii:
         write_to_ascii_statistics(sys.stderr)
 
-    print >> sys.stderr, 'Done. Output texts for %d PMIDs, skipped %d.' % (
+    print >> sys.stderr, 'Done. Output data for %d PMIDs, skipped %d.' % (
         output_count, skipped_count)
 
     return 0
