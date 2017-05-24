@@ -129,7 +129,7 @@ class Citation(object):
         return text
 
     def to_dict(self, options=None):
-        obj = { '_id': self.PMID }
+        obj = { 'id': self.PMID }
         if not options or not options.no_title:
             obj['title'] = self.title
         if not options or not options.no_abstract:
