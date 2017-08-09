@@ -92,6 +92,10 @@ def argparser():
                     help='Input PubMed distribution XML file(s).')
     return ap
 
+def inner_text(element):
+    """Return the catenated text of element and all subelements."""
+    return ''.join(element.itertext())
+
 class Citation(object):
     """Represents a PubMed citation."""
 
@@ -151,9 +155,10 @@ class Citation(object):
     def from_xml(cls, element):
         PMID = find_only(element, 'PMID').text
         article = find_only(element, 'Article')
-        title = find_only(article, 'ArticleTitle').text
+        title = inner_text(find_only(article, 'ArticleTitle'))
         if not title:
-            title = find_only(article, 'VernacularTitle').text    # fallback
+            # fallback
+            title = inner_text(find_only(article, 'VernacularTitle'))
         if not title:
             raise FormatError('missing title for {}'.format(PMID))
         abstract = find_abstract(element, PMID)
@@ -218,9 +223,8 @@ class AbstractSection(object):
 
     @classmethod
     def from_xml(cls, element, PMID):
-        if element.text and element.text.strip() != '':
-            text = element.text
-        else:
+        text = inner_text(element)
+        if not (text and text.strip() != ''):
             warn('empty text for <AbstractText>s in %s' % PMID)
             text = ''
         label = element.attrib.get('Label')
