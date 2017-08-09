@@ -714,7 +714,11 @@ def main(argv):
         return 1
 
     for fn in options.files:
-        process(fn, options)
+        try:
+            process(fn, options)
+        except:
+            error('Failed to process %s' % fn)
+            raise
 
     if options.ascii:
         write_to_ascii_statistics(sys.stderr)
