@@ -54,6 +54,8 @@ def argparser():
                     help='Only process citations with IDs in FILE.')
     ap.add_argument('-j', '--json', default=False, action='store_true',
                     help='Output JSON')
+    ap.add_argument('-ha', '--has-abstract', default=False, action='store_true',
+                    help='Only process citations with abstracts.')
     ap.add_argument('-gt', '--PMID-greater-than', metavar='PMID', default=None,
                     help='Only process citations with PMIDs > PMID.')
     ap.add_argument('-lt', '--PMID-lower-than', metavar='PMID', default=None,
@@ -497,6 +499,18 @@ def skip_pmid(PMID, options):
     else:
         return False
 
+def skip_citation(element, options):
+    """Return True if citation should be skipped by options, False otherwise."""
+
+    PMID = find_only(element, 'PMID').text
+    if skip_pmid(PMID, options):
+        return True
+    elif options.has_abstract and find_abstract(element, PMID) is None:
+        info('skipping %s (no abstract)' % PMID)
+        return True
+    else:
+        return False
+
 def to_ascii(s):
     """Map string to ASCII"""
     import unicode2ascii
@@ -627,8 +641,7 @@ def process_stream(stream, name, outdir, options):
         if event != 'end' or element.tag != 'MedlineCitation':
             continue
 
-        PMID = find_only(element, 'PMID').text
-        if skip_pmid(PMID, options):
+        if skip_citation(element, options):
             skipped_count += 1
             element.clear()    # Won't need this
             continue
