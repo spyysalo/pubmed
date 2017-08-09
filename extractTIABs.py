@@ -158,9 +158,13 @@ class Citation(object):
         title = inner_text(find_only(article, 'ArticleTitle'))
         if not title:
             # fallback
-            title = inner_text(find_only(article, 'VernacularTitle'))
+            try:
+                title = inner_text(find_only(article, 'VernacularTitle'))
+            except KeyError:
+                pass
         if not title:
-            raise FormatError('missing title for {}'.format(PMID))
+            warn('missing title for {}'.format(PMID))
+            title = ''
         abstract = find_abstract(element, PMID)
         if abstract is None:
             abstractTexts = []
@@ -342,11 +346,15 @@ class Chemical(object):
 def find_only(element, match):
     """Return the only matching child of the given element.
 
-    Fail on assert if there are no or multiple matches.
+    Raise KeyError if no match and FormatError if multiple matches.
     """
     found = element.findall(match)
-    assert len(found) == 1, 'Error: expected 1 %s, got %d' % (match, len(found))
-    return found[0]
+    if not found:
+        raise KeyError('Error: expected 1 %s, got %d' % (match, len(found)))
+    elif len(found) > 1:
+        raise FormatError('Error: expected 1 %s, got %d' % (match, len(found)))
+    else:
+        return found[0]
 
 def find_abstract(citation, PMID):
     """Return the Abstract element for given Article, or None if none."""
