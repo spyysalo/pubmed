@@ -448,9 +448,13 @@ def find_metadata(citation, PMID, options=None):
         return {}    # avoid unnecessary load
     metadata = OrderedDict()
 
-    # PubMed citation dates
+    # PubMed citation dates (if present)
     for date in ('DateCreated', 'DateCompleted'):
-        element = find_only(citation, date)
+        try:
+            element = find_only(citation, date)
+        except KeyError:
+            info('missing <%s> in %s' % (date, PMID))
+            continue
         metadata[date] = date_string(element, PMID)
 
     # Article dates
