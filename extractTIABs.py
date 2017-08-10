@@ -54,6 +54,8 @@ def argparser():
                     help='Only process citations with IDs in FILE.')
     ap.add_argument('-j', '--json', default=False, action='store_true',
                     help='Output JSON')
+    ap.add_argument('-ha', '--has-abstract', default=False, action='store_true',
+                    help='Only process citations with abstracts.')
     ap.add_argument('-gt', '--PMID-greater-than', metavar='PMID', default=None,
                     help='Only process citations with PMIDs > PMID.')
     ap.add_argument('-lt', '--PMID-lower-than', metavar='PMID', default=None,
@@ -89,6 +91,10 @@ def argparser():
     ap.add_argument('files', metavar='FILE', nargs='+',
                     help='Input PubMed distribution XML file(s).')
     return ap
+
+def inner_text(element):
+    """Return the catenated text of element and all subelements."""
+    return ''.join(element.itertext())
 
 class Citation(object):
     """Represents a PubMed citation."""
@@ -149,11 +155,16 @@ class Citation(object):
     def from_xml(cls, element):
         PMID = find_only(element, 'PMID').text
         article = find_only(element, 'Article')
-        title = find_only(article, 'ArticleTitle').text
+        title = inner_text(find_only(article, 'ArticleTitle'))
         if not title:
-            title = find_only(article, 'VernacularTitle').text    # fallback
+            # fallback
+            try:
+                title = inner_text(find_only(article, 'VernacularTitle'))
+            except KeyError:
+                pass
         if not title:
-            raise FormatError('missing title for {}'.format(PMID))
+            warn('missing title for {}'.format(PMID))
+            title = ''
         abstract = find_abstract(element, PMID)
         if abstract is None:
             abstractTexts = []
@@ -216,9 +227,8 @@ class AbstractSection(object):
 
     @classmethod
     def from_xml(cls, element, PMID):
-        if element.text and element.text.strip() != '':
-            text = element.text
-        else:
+        text = inner_text(element)
+        if not (text and text.strip() != ''):
             warn('empty text for <AbstractText>s in %s' % PMID)
             text = ''
         label = element.attrib.get('Label')
@@ -336,11 +346,15 @@ class Chemical(object):
 def find_only(element, match):
     """Return the only matching child of the given element.
 
-    Fail on assert if there are no or multiple matches.
+    Raise KeyError if no match and FormatError if multiple matches.
     """
     found = element.findall(match)
-    assert len(found) == 1, 'Error: expected 1 %s, got %d' % (match, len(found))
-    return found[0]
+    if not found:
+        raise KeyError('Error: expected 1 %s, got %d' % (match, len(found)))
+    elif len(found) > 1:
+        raise FormatError('Error: expected 1 %s, got %d' % (match, len(found)))
+    else:
+        return found[0]
 
 def find_abstract(citation, PMID):
     """Return the Abstract element for given Article, or None if none."""
@@ -434,9 +448,13 @@ def find_metadata(citation, PMID, options=None):
         return {}    # avoid unnecessary load
     metadata = OrderedDict()
 
-    # PubMed citation dates
+    # PubMed citation dates (if present)
     for date in ('DateCreated', 'DateCompleted'):
-        element = find_only(citation, date)
+        try:
+            element = find_only(citation, date)
+        except KeyError:
+            info('missing <%s> in %s' % (date, PMID))
+            continue
         metadata[date] = date_string(element, PMID)
 
     # Article dates
@@ -493,6 +511,18 @@ def skip_pmid(PMID, options):
         return True
     elif options.ids is not None and PMID not in options.ids:
         info('skipping %d (not in given IDs)' % PMID)
+        return True
+    else:
+        return False
+
+def skip_citation(element, options):
+    """Return True if citation should be skipped by options, False otherwise."""
+
+    PMID = find_only(element, 'PMID').text
+    if skip_pmid(PMID, options):
+        return True
+    elif options.has_abstract and find_abstract(element, PMID) is None:
+        info('skipping %s (no abstract)' % PMID)
         return True
     else:
         return False
@@ -627,8 +657,7 @@ def process_stream(stream, name, outdir, options):
         if event != 'end' or element.tag != 'MedlineCitation':
             continue
 
-        PMID = find_only(element, 'PMID').text
-        if skip_pmid(PMID, options):
+        if skip_citation(element, options):
             skipped_count += 1
             element.clear()    # Won't need this
             continue
@@ -697,7 +726,11 @@ def main(argv):
         return 1
 
     for fn in options.files:
-        process(fn, options)
+        try:
+            process(fn, options)
+        except:
+            error('Failed to process %s' % fn)
+            raise
 
     if options.ascii:
         write_to_ascii_statistics(sys.stderr)
