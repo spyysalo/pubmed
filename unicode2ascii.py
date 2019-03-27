@@ -3,14 +3,12 @@
 # Replaces Unicode characters in input text with ASCII
 # approximations based on file with mappings between the two.
 
-from __future__ import with_statement
-
 import sys
 import os
 import codecs
 import re
 
-from itertools import tee, izip, chain
+from itertools import tee, chain
 
 verbose = True
 
@@ -29,15 +27,17 @@ missing_mapping = {}
 # https://github.com/spyysalo/nxml2txt/pull/4.
 def wide_unichr(i):
     try:
-        return unichr(i)
+        return chr(i)
     except ValueError:
         return (r'\U' + hex(i)[2:].zfill(8)).decode('unicode-escape')
+
 
 def pairwise(iterable):
     "s -> (s0,s1), (s1,s2), (s2, s3), ... (sN, None)"
     a, b = tee(iterable)
     next(b, None)
-    return izip(a, chain(b, (None, )))
+    return zip(a, chain(b, (None, )))
+
 
 def read_mapping(f, fn="mapping data"):
     """
@@ -60,7 +60,8 @@ def read_mapping(f, fn="mapping data"):
             continue
 
         m = linere.match(l)
-        assert m, "Format error in %s line %s: '%s'" % (fn, i+1, l.replace("\n","").encode("utf-8"))
+        assert m, "Format error in %s line %s: '%s'" % (
+            fn, i+1, l.replace("\n","").encode("utf-8"))
         c, r = m.groups()
 
         c = wide_unichr(int(c, 16))
@@ -79,7 +80,9 @@ def read_mapping(f, fn="mapping data"):
 
     return mapping
 
+
 word_char = re.compile(r'^\w$', re.U)
+
 
 def map_character(prev, char, next_, mapping):
     """
@@ -98,6 +101,7 @@ def map_character(prev, char, next_, mapping):
         space = ' ' if next_ and word_char.match(next_) else ''
         mapping = mapping[:-1] + space
     return mapping
+
 
 def process(f, out, mapping):
     """
@@ -120,8 +124,9 @@ def process(f, out, mapping):
                     missing_mapping[c] = missing_mapping.get(c,0)+1
                     # escape into numeric Unicode codepoint
                     c = "<%.4X>" % ord(c)
-            out.write(c.encode("utf-8"))
+            out.write(c)
             prev = curr
+
 
 def print_summary(out, mapping):
     """
@@ -131,22 +136,23 @@ def print_summary(out, mapping):
 
     global map_count, missing_mapping
 
-    print >> out, "Characters replaced       \t%d" % sum(map_count.values())    
-    sk = map_count.keys()
-    sk.sort(lambda a,b : cmp(map_count[b],map_count[a]))
-    for c in sk:
+    print("Characters replaced       \t%d" % sum(map_count.values()), file=out)
+    for c in sorted(map_count.keys(), key=lambda k: map_count[k]):
         try:
-            print >> out, "\t%.4X\t%s\t'%s'\t%d" % (ord(c), c.encode("utf-8"), mapping[c], map_count[c])
+            print("\t%.4X\t%s\t'%s'\t%d" % (ord(c), c.encode("utf-8"),
+                                            mapping[c], map_count[c]), file=out)
         except:
-            print >> out, "\t%.4X\t'%s'\t%d" % (ord(c), mapping[c], map_count[c])
-    print >> out, "Characters without mapping\t%d" % sum(missing_mapping.values())
-    sk = missing_mapping.keys()
-    sk.sort(lambda a,b : cmp(missing_mapping[b],missing_mapping[a]))
-    for c in sk:
+            print("\t%.4X\t'%s'\t%d" % (ord(c), mapping[c], map_count[c]),
+                  file=out)
+    print("Characters without mapping\t%d" % sum(missing_mapping.values()),
+          file=out)
+    for c in sorted(missing_mapping.keys(), key=lambda k: missing_mapping[k]):
         try:
-            print >> out, "\t%.4X\t%s\t%d" % (ord(c), c.encode("utf-8"), missing_mapping[c])
+            print("\t%.4X\t%s\t%d" % (ord(c), c.encode("utf-8"),
+                                      missing_mapping[c]), file=out)
         except:
-            print >> out, "\t%.4X\t?\t%d" % (ord(c), missing_mapping[c])
+            print("\t%.4X\t?\t%d" % (ord(c), missing_mapping[c]), file=out)
+
 
 def argparser():
     """
@@ -158,6 +164,7 @@ def argparser():
     ap.add_argument('-v', '--verbose', default=False, action='store_true', help="Verbose output")
     ap.add_argument('file', nargs='+', help='Input text file')
     return ap
+
 
 def main(argv):
     global options
@@ -176,8 +183,9 @@ def main(argv):
 
         with codecs.open(mapfn, encoding="utf-8") as f:
             mapping = read_mapping(f, mapfn)
-    except IOError, e:
-        print >> sys.stderr, "Error reading mapping from %s: %s" % (MAPPING_FILE_NAME, e)
+    except IOError as e:
+        print("Error reading mapping from %s: %s" % (MAPPING_FILE_NAME, e),
+              file=sys.stderr)
         return 1
 
     # primary processing
@@ -193,14 +201,15 @@ def main(argv):
                     ofn = os.path.join(options.directory, bfn)
                     with codecs.open(ofn, 'wt', encoding="utf-8") as out:
                         process(f, out, mapping)
-        except IOError, e:
-            print >> sys.stderr, "Error processing %s: %s" % (fn, e)
+        except IOError as e:
+            print("Error processing %s: %s" % (fn, e), file=sys.stderr)
 
     # optionally print summary of mappings
     if options.verbose:
         print_summary(sys.stderr, mapping)
 
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))

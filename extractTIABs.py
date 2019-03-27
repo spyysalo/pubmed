@@ -1,7 +1,5 @@
 #!/usr/bin/env python
 
-from __future__ import with_statement
-
 import sys
 import os
 import codecs
@@ -11,9 +9,9 @@ import tarfile
 import json
 
 from time import time
-from StringIO import StringIO
+from io import StringIO
 from collections import OrderedDict, namedtuple
-from logging import error, warn, info
+from logging import error, warning, info
 
 from gtbtokenize import tokenize
 
@@ -21,6 +19,7 @@ try:
     import xml.etree.ElementTree as ET
 except ImportError:
     import cElementTree as ET
+
 
 utf8_stdout = codecs.getwriter('utf8')(sys.stdout)
 
@@ -41,8 +40,10 @@ month_abbr_map = {
     'Dec': '12',
 }
 
+
 class FormatError(Exception):
     pass
+
 
 def argparser():
     import argparse
@@ -92,9 +93,11 @@ def argparser():
                     help='Input PubMed distribution XML file(s).')
     return ap
 
+
 def inner_text(element):
     """Return the catenated text of element and all subelements."""
     return ''.join(element.itertext())
+
 
 class Citation(object):
     """Represents a PubMed citation."""
@@ -163,7 +166,7 @@ class Citation(object):
             except KeyError:
                 pass
         if not title:
-            warn('missing title for {}'.format(PMID))
+            warning('missing title for {}'.format(PMID))
             title = ''
         abstract = find_abstract(element, PMID)
         if abstract is None:
@@ -175,8 +178,8 @@ class Citation(object):
         for a in abstractTexts:
             try:
                 sections.append(AbstractSection.from_xml(a, PMID))
-            except EmptySection, e:
-                warn(str(e))
+            except EmptySection as e:
+                warning(str(e))
         mesh_headings = find_mesh_headings(element, PMID)
         mesh = [MeshHeading.from_xml(h) for h in mesh_headings]
         chemical_list = find_chemicals(element, PMID)
@@ -184,8 +187,10 @@ class Citation(object):
         metadata = find_metadata(element, PMID)
         return cls(PMID, title, sections, mesh, chemicals, metadata)
 
+
 class EmptySection(Exception):
     pass
+
 
 class AbstractSection(object):
     """Represents a section of an abstract with text and an optional label."""
@@ -229,7 +234,7 @@ class AbstractSection(object):
     def from_xml(cls, element, PMID):
         text = inner_text(element)
         if not (text and text.strip() != ''):
-            warn('empty text for <AbstractText>s in %s' % PMID)
+            warning('empty text for <AbstractText>s in %s' % PMID)
             text = ''
         label = element.attrib.get('Label')
         # The special Label "UNLABELLED" is interpreted as empty.
@@ -241,8 +246,10 @@ class AbstractSection(object):
             raise EmptySection('empty unlabelled <AbstractText> in %s' % PMID)
         return cls(text, label)
 
+
 Descriptor = namedtuple('Descriptor', 'id name major')
 Qualifier = namedtuple('Qualifier', 'id name major')
+
 
 class MeshHeading(object):
     """Represents a MeSH heading with a Descriptor and optional Qualifiers."""
@@ -316,6 +323,7 @@ class MeshHeading(object):
             qualifiers.append(Qualifier(id_, qual.text, major))
         return cls(descriptor, qualifiers)
 
+
 class Chemical(object):
     """Represents a Chemical entry with a ID, name, and registry number."""
 
@@ -343,6 +351,7 @@ class Chemical(object):
         regnum = find_only(element, 'RegistryNumber').text
         return cls(id_, name, regnum)
 
+
 def find_only(element, match):
     """Return the only matching child of the given element.
 
@@ -355,6 +364,7 @@ def find_only(element, match):
         raise FormatError('Error: expected 1 %s, got %d' % (match, len(found)))
     else:
         return found[0]
+
 
 def find_abstract(citation, PMID):
     """Return the Abstract element for given Article, or None if none."""
@@ -371,12 +381,13 @@ def find_abstract(citation, PMID):
         otherAbstracts = citation.findall('OtherAbstract')
         # This happens a few times.
         if len(otherAbstracts) > 1:
-            warn('%d "other" abstracts for PMID %s. Only using first.' %
-                 (len(otherAbstracts), PMID))
+            warning('%d "other" abstracts for PMID %s. Only using first.' %
+                    (len(otherAbstracts), PMID))
         if otherAbstracts != []:
             abstract = otherAbstracts[0]
 
     return abstract
+
 
 def find_mesh_headings(citation, PMID, options=None):
     """Return list of MeshHeading elements in given citation."""
@@ -390,6 +401,7 @@ def find_mesh_headings(citation, PMID, options=None):
     headings = heading_lists[0]
     return headings.findall('MeshHeading')
 
+
 def find_chemicals(citation, PMID, options=None):
     """Return list of Chemical elements in given citation."""
     if options and not options.substances:
@@ -402,12 +414,13 @@ def find_chemicals(citation, PMID, options=None):
     chemicals = chemical_lists[0]
     return chemicals.findall('Chemical')
 
+
 def date_string(element, PMID, expect_full_date=True):
     """Format <Date*> element content as string."""
     values = {}
     for e in element:
         if e.tag in values:
-            warn('duplicate %s in %s in %s' % (e.tag, element.tag, PMID))
+            warning('duplicate %s in %s in %s' % (e.tag, element.tag, PMID))
         else:
             values[e.tag] = e.text
     date = values.pop('MedlineDate', None)
@@ -416,31 +429,33 @@ def date_string(element, PMID, expect_full_date=True):
     day = values.pop('Day', None)
     values.pop('Season', None)    # ignore Season
     if values:
-        warn('extra data in %s in %s: %s' % (
+        warning('extra data in %s in %s: %s' % (
             element.tag, PMID,
             ' '.join(['%s="%s"' % (k, v) for k, v in values.items()])))
     if month is not None and not month.isdigit():
         if month in month_abbr_map:
             month = month_abbr_map[month]    # "Jan" -> "01" etc.
         else:
-            warn('unexpected month format %s in %s' % (month, PMID))
+            warning('unexpected month format %s in %s' % (month, PMID))
     if date is not None:
         if year or month or day:
-            warn('extra data w/MedlineDate in %s in %s' % (element.tag, PMID))
+            warning('extra data w/MedlineDate in %s in %s' % (
+                element.tag, PMID))
         return date
     elif year is None:
-        warn('missing <Year> in %s in %s' % (element.tag, PMID))
+        warning('missing <Year> in %s in %s' % (element.tag, PMID))
         return ''
     elif month is None:
         if expect_full_date:
-            warn('missing <Month> in %s in %s' % (element.tag, PMID))
+            warning('missing <Month> in %s in %s' % (element.tag, PMID))
         return year
     elif day is None:
         if expect_full_date:
-            warn('missing <Day> in %s in %s' % (element.tag, PMID))
+            warning('missing <Day> in %s in %s' % (element.tag, PMID))
         return '%s-%s' % (year, month)
     else:
         return '%s-%s-%s' % (year, month, day)    # https://xkcd.com/1179/
+
 
 def find_metadata(citation, PMID, options=None):
     """Return dictionary of citation metadata."""
@@ -466,8 +481,10 @@ def find_metadata(citation, PMID, options=None):
         if datetype == 'Electronic':
             metadata['EPubDate'] = date_string(e, PMID)
         else:
-            warn('unknown <ArticleDate DateType="%s"> in %s' % (datetype, PMID))
+            warning('unknown <ArticleDate DateType="%s"> in %s' % (
+                datetype, PMID))
     return metadata
+
 
 def tree_number_text(treenum, qualifier, treenum_to_name):
     """Return human-readable text for MeSH treenumber."""
@@ -478,17 +495,19 @@ def tree_number_text(treenum, qualifier, treenum_to_name):
         text += '/'+ qualifier.name
     return '%s (%s)' % (num, text)
 
+
 def get_mesh_data():
     from meshdata import mesh
     if get_mesh_data._cache is None:
         treenum_to_name = {}
-        for uid, obj in mesh.iteritems():
+        for uid, obj in mesh.items():
             name = obj['name']
             for tnum in obj['treenums']:
                 treenum_to_name[tnum] = name
         get_mesh_data._cache = mesh, treenum_to_name
     return get_mesh_data._cache
 get_mesh_data._cache = None
+
 
 def mesh_ancestors(treenum):
     """Return ancestor tree numbers for given MeSH tree number."""
@@ -498,6 +517,7 @@ def mesh_ancestors(treenum):
     # consists of just the first letter.
     parts = treenum.split('.')
     return [treenum[0]] + ['.'.join(parts[:i+1]) for i in range(len(parts))]
+
 
 def skip_pmid(PMID, options):
     """Return True if PMID should be skipped by options, False otherwise."""
@@ -515,6 +535,7 @@ def skip_pmid(PMID, options):
     else:
         return False
 
+
 def skip_citation(element, options):
     """Return True if citation should be skipped by options, False otherwise."""
 
@@ -527,6 +548,7 @@ def skip_citation(element, options):
     else:
         return False
 
+
 def to_ascii(s):
     """Map string to ASCII"""
     import unicode2ascii
@@ -534,25 +556,27 @@ def to_ascii(s):
         return s
     if to_ascii.mapping is None:
         mapfn = os.path.join(os.path.dirname(__file__), 'entities.dat')
-        with codecs.open(mapfn, encoding='utf-8') as f:
+        with open(mapfn, encoding='utf-8') as f:
             to_ascii.mapping = unicode2ascii.read_mapping(f, mapfn)
     out = StringIO()
     unicode2ascii.process([s], out, to_ascii.mapping)
     return out.getvalue()
 to_ascii.mapping = None
 
+
 def write_to_ascii_statistics(out=sys.stderr):
     from unicode2ascii import missing_mapping
     if not missing_mapping:
         return    # nothing missing
-    print >> out, "Characters without mapping\t%d" % sum(missing_mapping.values())
-    sk = missing_mapping.keys()
-    sk.sort(lambda a,b : cmp(missing_mapping[b],missing_mapping[a]))
-    for c in sk:
+    print("Characters without mapping\t%d" % sum(missing_mapping.values()),
+          file=out)
+    for c in sorted(missing_mapping.keys(), key=lambda k: missing_mapping[k]):
         try:
-            print >> out, "\t%.4X\t%s\t%d" % (ord(c), c.encode("utf-8"), missing_mapping[c])
+            print("\t%.4X\t%s\t%d" % (ord(c), c.encode("utf-8"),
+                                      missing_mapping[c]), file=out)
         except:
-            print >> out, "\t%.4X\t?\t%d" % (ord(c), missing_mapping[c])
+            print("\t%.4X\t?\t%d" % (ord(c), missing_mapping[c]), file=out)
+
 
 def citation_to_ascii(citation):
     """Map citation text content to ASCII"""
@@ -560,6 +584,7 @@ def citation_to_ascii(citation):
     for section in citation.sections:
         section._text = to_ascii(section._text)
         section.label = to_ascii(section.label)
+
 
 def citation_ssplit(citation):
     """Split sentences in citation text content."""
@@ -573,14 +598,17 @@ def citation_ssplit(citation):
         section.label = ssplitter(section.label)
 citation_ssplit.ssplitter = None
 
+
 def tokenize_multiline(text):
     return '\n'.join(tokenize(s) for s in text.split('\n'))
+
 
 def citation_tokenize(citation):
     citation.title = tokenize_multiline(citation.title)
     for section in citation.sections:
         section._text = tokenize_multiline(section._text)
         section.label = tokenize_multiline(section.label)
+
 
 def save_in_tar(tar, name, text):
     info = tar.tarinfo(name)
@@ -589,6 +617,7 @@ def save_in_tar(tar, name, text):
     info.size = sio.len
     info.mtime = time()
     tar.addfile(info, sio)
+
 
 def write_citation(directory, name, outfile, citation, options):
     if options.ascii:
@@ -603,7 +632,7 @@ def write_citation(directory, name, outfile, citation, options):
         text = json.dumps(citation.to_dict(options), sort_keys=True,
                           indent=2, separators=(',', ': '))
     if directory is None:
-        print >> utf8_stdout, text
+        print(text, file=utf8_stdout)
     else:
         suffix = '.txt' if not options.json else '.json'
         fn = os.path.join(directory, citation.PMID+suffix)
@@ -612,8 +641,9 @@ def write_citation(directory, name, outfile, citation, options):
                               os.path.basename(fn))
             save_in_tar(outfile, fn, text)
         else:
-            with codecs.open(fn, 'wt', encoding='utf-8') as out:
+            with open(fn, 'w', encoding='utf-8') as out:
                 out.write(text)
+
 
 def strip_extensions(fn):
     """Strip all extensions from file name."""
@@ -622,6 +652,7 @@ def strip_extensions(fn):
         if not ext:
             break
     return fn
+
 
 def make_output_directory(fn, options):
     # create a directory for this package; we don't want to have all
@@ -636,14 +667,16 @@ def make_output_directory(fn, options):
             return directory
     try:
         os.makedirs(directory)
-    except OSError, e:
+    except OSError as e:
         error('Failed to create %s: %s' % (directory, str(e)))
         raise
     return directory
 
+
 def tarname(outdir, name):
     base = os.path.basename(name).split('.')[0]
     return os.path.join(outdir, base + '.tar.gz')
+
 
 def process_stream(stream, name, outdir, options):
     global output_count, skipped_count
@@ -671,6 +704,7 @@ def process_stream(stream, name, outdir, options):
     if options.tgz:
         outfile.close()
 
+
 def process(fn, options):
     if options.output_dir == '-':
         outdir = None    # use STDOUT
@@ -682,6 +716,7 @@ def process(fn, options):
     else:
         with gzip.GzipFile(fn) as stream:
             process_stream(ET.iterparse(stream), fn, outdir, options)
+
 
 def read_ids(fn):
     ids = set()
@@ -697,6 +732,7 @@ def read_ids(fn):
     info('read %d IDs from %s' % (len(ids), fn))
     return ids
 
+
 def process_options(argv):
     options = argparser().parse_args(argv[1:])
     if options.verbose:
@@ -705,7 +741,7 @@ def process_options(argv):
         options.mesh_headings = True     # -mt implies -mh
     if options.tokenize and not options.ssplit:
         # Tokenizer assumes sentence-split input
-        warn('--ssplit recommended with --tokenize')
+        warning('--ssplit recommended with --tokenize')
     if (options.no_title and options.no_abstract and
         not (options.mesh_headings or options.include_id or options.metadata)):
         error('nothing to output (-nt and -na without other output options)')
@@ -717,6 +753,7 @@ def process_options(argv):
     if options.ids is not None:
         options.ids = read_ids(options.ids)
     return options
+
 
 def main(argv):
     global output_count, skipped_count
@@ -735,10 +772,11 @@ def main(argv):
     if options.ascii:
         write_to_ascii_statistics(sys.stderr)
 
-    print >> sys.stderr, 'Done. Output data for %d PMIDs, skipped %d.' % (
-        output_count, skipped_count)
+    print('Done. Output data for %d PMIDs, skipped %d.' % (
+        output_count, skipped_count), file=sys.stderr)
 
     return 0
+
 
 if __name__ == '__main__':
     sys.exit(main(sys.argv))
