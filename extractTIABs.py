@@ -9,7 +9,7 @@ import tarfile
 import json
 
 from time import time
-from io import StringIO
+from io import StringIO, BytesIO
 from collections import OrderedDict, namedtuple
 from logging import error, warning, info
 
@@ -612,11 +612,10 @@ def citation_tokenize(citation):
 
 def save_in_tar(tar, name, text):
     info = tar.tarinfo(name)
-    sio = StringIO(text.encode('utf-8'))
-    sio.seek(0)
-    info.size = sio.len
+    data = text.encode('utf-8')
+    info.size = len(data)
     info.mtime = time()
-    tar.addfile(info, sio)
+    tar.addfile(info, BytesIO(data))
 
 
 def write_citation(directory, name, outfile, citation, options):
