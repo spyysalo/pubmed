@@ -8,7 +8,7 @@ import json
 
 import xml.etree.ElementTree as ET
 
-from logging import info, warn
+from logging import info, warning, error
 
 
 # MeSH top-level structure (from https://www.nlm.nih.gov/cgi/mesh/2016/MB_cgi),
@@ -42,6 +42,8 @@ def argparser():
                     help='Output JSON (default TSV)')
     ap.add_argument('-d', '--dict', default=False, action='store_true',
                     help='Output python dictionary (default TSV)')
+    ap.add_argument('-b', '--brat-norm', default=False, action='store_true',
+                    help='Output brat normalization format (default TSV)')
     ap.add_argument("file", metavar="FILE", help="Input MeSH XML.")
     return ap
 
@@ -57,6 +59,16 @@ def find_only(element, match):
     """
     found = element.findall(match)
     assert len(found) == 1, 'Error: expected 1 %s, got %d' % (match, len(found))
+    return found[0]
+
+
+def find_first(element, match):
+    """Return the first matching child of the given element.
+
+    Fail on assert if there are no matches.
+    """
+    found = element.findall(match)
+    assert len(found) > 0, 'Error: did not find %s' % match
     return found[0]
 
 
@@ -103,15 +115,16 @@ class Descriptor(object):
         name_element = find_only(element, 'DescriptorName')
         name = find_only(name_element, 'String').text
         try:
-            scope = find_only(element, './/ScopeNote').text
+            scope = find_first(element, './/ScopeNote').text
+            scope = scope.rstrip()
         except Exception as e:
             info('no scope note for %s (%s)' % (uid, name))
-            scope = None
+            scope = ''
         try:
             tree_number_list_element = find_only(element, 'TreeNumberList')
             tree_numbers = tree_number_list_element.findall('TreeNumber')
         except Exception as e:
-            warn('missing tree numbers for %s (%s)' % (uid, name))
+            warning('missing tree numbers for %s (%s)' % (uid, name))
             tree_numbers = []
         return cls(uid, name, scope, [e.text for e in tree_numbers])
 
@@ -130,6 +143,12 @@ def write_data(descriptor, options, out=None):
         if not write_data.first:
             out.write(',\n')
         out.write(pretty_dumps(descriptor.to_dict()))
+    elif options.brat_norm:
+        print('\t'.join([
+            descriptor.id,
+            'name:Title:{}'.format(descriptor.name),
+            'info:Scope:{}'.format(descriptor.scope),
+        ]), file=out)
     else:
         print('\t'.join([str(v) for k, v in sorted_kv]), file=out)
     write_data.first = False
@@ -154,6 +173,9 @@ def process(path, options):
 
 def main(argv):
     args = argparser().parse_args(argv[1:])
+    if sum(1 for f in ('json', 'dict', 'brat_norm') if getattr(args, f)) > 1:
+        error('at most one of -j, -d and -b arguments allowed.')
+        return 1
 
     write_header(args)
     if args.top:
