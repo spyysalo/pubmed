@@ -3,11 +3,13 @@
 # Extract unique ID, name and tree numbers from MeSH XML data.
 
 import sys
+import gzip
 import json
 
 import xml.etree.ElementTree as ET
 
 from logging import info, warn
+
 
 # MeSH top-level structure (from https://www.nlm.nih.gov/cgi/mesh/2016/MB_cgi),
 # not explicitly found in the XML
@@ -30,6 +32,7 @@ meshtop = [
     ['Z', 'Geographicals', ['Z']],
 ]
 
+
 def argparser():
     import argparse
     ap=argparse.ArgumentParser(description="Extract data from MeSH XML")
@@ -42,8 +45,10 @@ def argparser():
     ap.add_argument("file", metavar="FILE", help="Input MeSH XML.")
     return ap
 
+
 def pretty_dumps(obj):
     return json.dumps(obj, sort_keys=True, indent=4, separators=(',', ': '))
+
 
 def find_only(element, match):
     """Return the only matching child of the given element.
@@ -54,6 +59,7 @@ def find_only(element, match):
     assert len(found) == 1, 'Error: expected 1 %s, got %d' % (match, len(found))
     return found[0]
 
+
 def write_header(options, out=None):
     if out is None:
         out = sys.stdout
@@ -62,6 +68,7 @@ def write_header(options, out=None):
     elif options.json:
         out.write('[\n')
 
+
 def write_trailer(options, out=None):
     if out is None:
         out = sys.stdout
@@ -69,6 +76,7 @@ def write_trailer(options, out=None):
         out.write('}')
     elif options.json:
         out.write('\n]\n')
+
 
 class Descriptor(object):
     """MeSH descriptor."""
@@ -107,6 +115,7 @@ class Descriptor(object):
             tree_numbers = []
         return cls(uid, name, scope, [e.text for e in tree_numbers])
 
+
 def write_data(descriptor, options, out=None):
     if out is None:
         out = sys.stdout
@@ -126,6 +135,23 @@ def write_data(descriptor, options, out=None):
     write_data.first = False
 write_data.first = True
 
+
+def process_stream(stream, options):
+    for event, element in stream:
+        if event != 'end' or element.tag != 'DescriptorRecord':
+            continue
+        write_data(Descriptor.from_xml(element), options)
+        element.clear()
+
+
+def process(path, options):
+    if not path.endswith('.gz'):
+        return process_stream(ET.iterparse(path), options)
+    else:
+        with gzip.GzipFile(path) as stream:
+            return process_stream(ET.iterparse(stream), options)
+
+
 def main(argv):
     args = argparser().parse_args(argv[1:])
 
@@ -133,14 +159,11 @@ def main(argv):
     if args.top:
         for uid, name, treenums in meshtop:
             write_data(Descriptor(uid, name, None, treenums), args)
-    for event, element in ET.iterparse(args.file):
-        if event != 'end' or element.tag != 'DescriptorRecord':
-            continue
-        write_data(Descriptor.from_xml(element), args)
-        element.clear()
+    process(args.file, args)
     write_trailer(args)
         
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
