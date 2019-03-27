@@ -96,13 +96,13 @@ class Descriptor(object):
         name = find_only(name_element, 'String').text
         try:
             scope = find_only(element, './/ScopeNote').text
-        except Exception, e:
+        except Exception as e:
             info('no scope note for %s (%s)' % (uid, name))
             scope = None
         try:
             tree_number_list_element = find_only(element, 'TreeNumberList')
             tree_numbers = tree_number_list_element.findall('TreeNumber')
-        except Exception, e:
+        except Exception as e:
             warn('missing tree numbers for %s (%s)' % (uid, name))
             tree_numbers = []
         return cls(uid, name, scope, [e.text for e in tree_numbers])
@@ -113,16 +113,16 @@ def write_data(descriptor, options, out=None):
     desc_dict = descriptor.to_dict(no_id=options.dict)
     sorted_kv = sorted((k, v) for k, v in desc_dict.items())
     if options.dict:
-        print >> out, '    %s: {' % repr(descriptor.id)
-        print >> out, '\n'.join([8 * ' ' + '%s: %s,' % (repr(k), repr(v))
-                                 for k, v in sorted_kv])
-        print >> out, '    },'
+        print('    %s: {' % repr(descriptor.id), file=out)
+        print('\n'.join([8 * ' ' + '%s: %s,' % (repr(k), repr(v))
+                                 for k, v in sorted_kv]), file=out)
+        print('    },', file=out)
     elif options.json:
         if not write_data.first:
             out.write(',\n')
         out.write(pretty_dumps(descriptor.to_dict()))
     else:
-        print >> out, '\t'.join([str(v) for k, v in sorted_kv])
+        print('\t'.join([str(v) for k, v in sorted_kv]), file=out)
     write_data.first = False
 write_data.first = True
 
