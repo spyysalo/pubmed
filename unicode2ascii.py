@@ -111,6 +111,7 @@ def process(f, out, mapping):
     """
     global map_count, missing_mapping
 
+    missing_count = 0
     for line in f:
         prev = None
         for c, next_ in pairwise(line):
@@ -124,8 +125,10 @@ def process(f, out, mapping):
                     missing_mapping[c] = missing_mapping.get(c,0)+1
                     # escape into numeric Unicode codepoint
                     c = "<%.4X>" % ord(c)
+                    missing_count += 1
             out.write(c)
             prev = curr
+    return missing_count
 
 
 def print_summary(out, mapping):

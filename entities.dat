@@ -568,6 +568,7 @@
 0283	esh
 # ...
 028A	upsilon
+028C	^
 # ...
 # 02B0-02FF: Spacing Modifier Letters
 02B0	h
@@ -1324,6 +1325,7 @@
 1EFF	y
 # ...
 1F44	o
+1F70	alpha
 # 2000-206F: General Punctuation (partial)
 2000	 
 2001	 

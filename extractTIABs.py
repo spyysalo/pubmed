@@ -51,6 +51,9 @@ def argparser():
     ap=argparse.ArgumentParser(description='Extract texts from PubMed XML.')
     ap.add_argument('-a', '--ascii', default=False, action='store_true',
                     help='Map text to ASCII')
+    ap.add_argument('-am', '--ascii-missing', default=False,
+                    action='store_true',
+                    help='Only output if ASCII mapping is missing (debugging).')
     ap.add_argument('-i', '--ids', metavar='FILE', default=None,
                     help='Only process citations with IDs in FILE.')
     ap.add_argument('-j', '--json', default=False, action='store_true',
@@ -553,14 +556,14 @@ def to_ascii(s):
     """Map string to ASCII"""
     import unicode2ascii
     if not s:
-        return s
+        return s, 0
     if to_ascii.mapping is None:
         mapfn = os.path.join(os.path.dirname(__file__), 'entities.dat')
         with open(mapfn, encoding='utf-8') as f:
             to_ascii.mapping = unicode2ascii.read_mapping(f, mapfn)
     out = StringIO()
-    unicode2ascii.process([s], out, to_ascii.mapping)
-    return out.getvalue()
+    missing_count = unicode2ascii.process([s], out, to_ascii.mapping)
+    return out.getvalue(), missing_count
 to_ascii.mapping = None
 
 
@@ -580,10 +583,15 @@ def write_to_ascii_statistics(out=sys.stderr):
 
 def citation_to_ascii(citation):
     """Map citation text content to ASCII"""
-    citation.title = to_ascii(citation.title)
+    total_missing = 0
+    citation.title, missing_count = to_ascii(citation.title)
+    total_missing += missing_count
     for section in citation.sections:
-        section._text = to_ascii(section._text)
-        section.label = to_ascii(section.label)
+        section._text, missing_count = to_ascii(section._text)
+        total_missing += missing_count
+        section.label, missing_count = to_ascii(section.label)
+        total_missing += missing_count
+    return total_missing
 
 
 def citation_ssplit(citation):
@@ -620,7 +628,9 @@ def save_in_tar(tar, name, text):
 
 def write_citation(directory, name, outfile, citation, options):
     if options.ascii:
-        citation_to_ascii(citation)
+        missing = citation_to_ascii(citation)
+        if options.ascii_missing and not missing:
+            return
     if options.ssplit:
         citation_ssplit(citation)
     if options.tokenize:
