@@ -1,7 +1,8 @@
 # 0080-00FF: Latin-1 Supplement
 # 0080	<control> (remove)
 0080	
-# 0081	<control>
+# 0081	<control> (remove)
+0081	
 # 0082	<BREAK PERMITTED HERE>
 # 0083	<NO BREAK HERE>
 # 0084	<control>
@@ -33,7 +34,8 @@
 # 0097	<END OF GUARDED AREA> (misuse as dash)
 0097	-
 # 0098	<START OF STRING>
-# 0099	<control>
+# 0099	<control> (remove)
+0099	
 # 009A	<SINGLE CHARACTER INTRODUCER>
 # 009B	<CONTROL SEQUENCE INTRODUCER>
 # 009C	<STRING TERMINATOR>
@@ -322,6 +324,7 @@
 0192	f
 0193	G
 # 0194	<LATIN CAPITAL LETTER GAMMA>
+0194	gamma
 # 0195	<LATIN SMALL LETTER HV>
 0195	hv
 # 0196	<LATIN SMALL LETTER IOTA>
@@ -366,7 +369,8 @@
 01BD	5
 # 01BE	<LATIN LETTER INVERTED GLOTTAL STOP WITH STROKE>
 # 01BF	<LATIN LETTER WYNN>
-# 01C0	<LATIN LETTER DENTAL CLICK>
+# 01C0	<LATIN LETTER DENTAL CLICK> (very rough approx.)
+01C0	|
 # 01C1	<LATIN LETTER LATERAL CLICK> (very rough approx.)
 01C1	||
 # 01C2	<LATIN LETTER ALVEOLAR CLICK> (very rough approx.)
@@ -536,6 +540,7 @@
 0262	G
 0263	gamma
 # 0264	<LATIN SMALL LETTER RAMS HORN>
+0264	gamma
 # 0265	<LATIN SMALL LETTER TURNED H>
 0266	h
 0267	h
@@ -564,12 +569,13 @@
 027E	r
 # 027F	<LATIN SMALL LETTER REVERSED R WITH FISHHOOK>
 # ...
+0282	s
 # 0283	<LATIN SMALL LETTER ESH>
 0283	esh
 # ...
 028A	upsilon
-028C	^
 # ...
+029F	L
 # 02B0-02FF: Spacing Modifier Letters
 02B0	h
 02B1	h
@@ -968,7 +974,9 @@
 0431	b
 0432	B
 # 0433	<CYRILLIC SMALL LETTER GHE>
+0433	ghe
 # 0434	<CYRILLIC SMALL LETTER DE>
+0434	de
 0435	e
 # 0436	<CYRILLIC SMALL LETTER ZHE> (very rough approx.)
 0436	x
@@ -992,7 +1000,7 @@
 # 0444	<CYRILLIC SMALL LETTER EF> (misused as "phi"?)
 0444	phi
 0445	x
-# 0446	<CYRILLIC SMALL LETTER TSE>
+0446	tse
 # 0447	<CYRILLIC SMALL LETTER CHE>
 # 0448	<CYRILLIC SMALL LETTER SHA>
 # 0449	<CYRILLIC SMALL LETTER SHCHA>
@@ -1044,12 +1052,14 @@
 # ...
 049B	k
 # ...
+04A1	k
 # 04B0	<CYRILLIC CAPITAL LETTER STRAIGHT U WITH STROKE> (rough approx.)
 04B0	Y
 # ...
 # 04D9	<CYRILLIC SMALL LETTER SCHWA> (rough approx.)
 04D9	e
 # ...
+05BE	-
 # 05F3 <HEBREW PUNCTUATION GERESH> (use as single quote)
 05F3	'
 # 05F3 <HEBREW PUNCTUATION GERSHAYIM>
@@ -1061,6 +1071,7 @@
 # ...
 # 115F <HANGUL CHOSEONG FILLER>
 115F	 
+1D05	D
 1D27	lamda
 # ...
 # 1D52 <MODIFIER LETTER SMALL O>
@@ -1325,7 +1336,6 @@
 1EFF	y
 # ...
 1F44	o
-1F70	alpha
 # 2000-206F: General Punctuation (partial)
 2000	 
 2001	 
@@ -1492,6 +1502,7 @@
 # 2323	<SMILE> (appears primarily as combining mark; remove)
 2323	
 # ...
+237A	alpha
 # 23B4	<TOP SQUARE BRACKET> (combining mark[?]; remove)
 23B4	
 # ...
@@ -2405,8 +2416,11 @@
 # ...
 266F	#
 # ...
+A78C	'
 # E2F6	<not a valid unicode character> (used as equal or greater than)
+E011	-
 E2F6	>=
+E2FA	<
 F020	 
 FB00	ff
 FB01	fi
@@ -2456,8 +2470,12 @@ FF1C	<
 FF1D	=
 FF1E	>
 FF1F	?
+FF3B	[
+FF3D	]
 # ...
 FF5E	~
+FF65	.
+F8FD	-
 # F8FE <Private Use, Last> (appears to be used for double chemical bond)
 F8FE	=
 # F8FF <Private Use, Last> (appears to be used for single chemical bond)

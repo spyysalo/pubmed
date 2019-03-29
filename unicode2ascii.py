@@ -65,7 +65,9 @@ def read_mapping(f, fn="mapping data"):
         c, r = m.groups()
 
         c = wide_unichr(int(c, 16))
-        assert c not in mapping or mapping[c] == r, "ERROR: conflicting mappings for %.4X: '%s' and '%s'" % (ord(c), mapping[c], r)
+        assert c not in mapping or mapping[c] == r, \
+            "ERROR: conflicting mappings for %.4X: '%s' and '%s'" % (
+                ord(c), mapping[c], r)
 
         # exceptions: literal '\n' maps to newline, initial and terminal
         # '\b' map to backspace (see map_character)
@@ -140,16 +142,19 @@ def print_summary(out, mapping):
     global map_count, missing_mapping
 
     print("Characters replaced       \t%d" % sum(map_count.values()), file=out)
-    for c in sorted(map_count.keys(), key=lambda k: map_count[k]):
+    for c in sorted(map_count.keys(), key=lambda k: map_count[k],
+                    reverse=True):
         try:
             print("\t%.4X\t%s\t'%s'\t%d" % (ord(c), c.encode("utf-8"),
-                                            mapping[c], map_count[c]), file=out)
+                                            mapping[c], map_count[c]),
+                  file=out)
         except:
             print("\t%.4X\t'%s'\t%d" % (ord(c), mapping[c], map_count[c]),
                   file=out)
     print("Characters without mapping\t%d" % sum(missing_mapping.values()),
           file=out)
-    for c in sorted(missing_mapping.keys(), key=lambda k: missing_mapping[k]):
+    for c in sorted(missing_mapping.keys(), key=lambda k: missing_mapping[k],
+                    reverse=True):
         try:
             print("\t%.4X\t%s\t%d" % (ord(c), c.encode("utf-8"),
                                       missing_mapping[c]), file=out)
