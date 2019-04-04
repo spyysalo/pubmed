@@ -672,10 +672,11 @@ def make_output_directory(fn, options):
     else:
         # tgz: create output_dir only, no subdirs
         directory = options.output_dir
-        if os.path.isdir(directory):
-            return directory
+    directory = os.path.normpath(directory)
+    if os.path.isdir(directory):
+        return directory
     try:
-        os.makedirs(directory)
+        os.makedirs(directory, exist_ok=True)
     except OSError as e:
         error('Failed to create %s: %s' % (directory, str(e)))
         raise
