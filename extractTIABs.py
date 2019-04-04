@@ -237,7 +237,7 @@ class AbstractSection(object):
     def from_xml(cls, element, PMID):
         text = inner_text(element)
         if not (text and text.strip() != ''):
-            warning('empty text for <AbstractText>s in %s' % PMID)
+            info('empty text for <AbstractText>s in %s' % PMID)
             text = ''
         label = element.attrib.get('Label')
         # The special Label "UNLABELLED" is interpreted as empty.
