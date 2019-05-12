@@ -378,10 +378,16 @@ def find_abstract(citation, PMID):
         (len(abstracts, PMID))
     abstract = None if not abstracts else abstracts[0]
 
-    # if there's no <Abstract>, look for <OtherAbstract> in the
-    # citation (*not* the article).
+    # if there's no <Abstract>, look for <OtherAbstract> in English in
+    # the citation (*not* the article).
     if abstract is None:
-        otherAbstracts = citation.findall('OtherAbstract')
+        otherAbstracts = []
+        for o in citation.findall('OtherAbstract'):
+            lang = o.attrib.get('Language')
+            if lang == 'eng':
+                otherAbstracts.append(o)
+            else:
+                warning('Skipping <OtherAbstract Languag="{}">'.format(lang))
         # This happens a few times.
         if len(otherAbstracts) > 1:
             warning('%d "other" abstracts for PMID %s. Only using first.' %
