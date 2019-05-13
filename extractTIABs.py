@@ -66,6 +66,8 @@ def argparser():
                     help='Only process citations with PMIDs < PMID.')
     ap.add_argument('-sa', '--single-line-abstract', default=False,
                     action='store_true', help='Output abstract on single line.')
+    ap.add_argument('-se', '--skip-empty', default=False, action='store_true',
+                    help='Skip citations with "[Not Available]" title.')
     ap.add_argument('-ii', '--include-id', default=False,
                     action='store_true', help='Include PMID in ouput.')
     ap.add_argument('-m', '--metadata', default=False, action='store_true',
@@ -112,6 +114,11 @@ class Citation(object):
         self.mesh = mesh
         self.chemicals = chemicals
         self.metadata = metadata
+
+    def is_empty(self):
+        # TODO check for other patterns for empty citations
+        return ((self.title == '' or self.title == '[Not Available].') and
+                (self.abstract_text() == '' or self.abstract_text().isspace()))
 
     def abstract_text(self, options=None):
         section_texts = [s.text(options) for s in self.sections]
@@ -182,7 +189,7 @@ class Citation(object):
             try:
                 sections.append(AbstractSection.from_xml(a, PMID))
             except EmptySection as e:
-                warning(str(e))
+                info(str(e))    # happens too often to warn
         mesh_headings = find_mesh_headings(element, PMID)
         mesh = [MeshHeading.from_xml(h) for h in mesh_headings]
         chemical_list = find_chemicals(element, PMID)
@@ -712,6 +719,12 @@ def process_stream(stream, name, outdir, options):
             continue
 
         citation = Citation.from_xml(element)
+
+        if options.skip_empty and citation.is_empty():
+            skipped_count += 1
+            element.clear()    # Won't need this
+            continue
+
         write_citation(outdir, name, outfile, citation, options)
         output_count += 1
 
