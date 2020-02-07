@@ -7,7 +7,7 @@
 # 0083	<NO BREAK HERE>
 # 0084	<control>
 # 0085	<NEXT LINE (NEL)>
-0085	\n
+0085	 
 # 0086	<START OF SELECTED AREA>
 # 0087	<END OF SELECTED AREA>
 # 0088	<CHARACTER TABULATION SET>
@@ -70,8 +70,7 @@
 00AE	(R)
 # 00AF	<MACRON> (overline)
 00AF	 
-# '\b' triggers space insertion at word boundaries
-00B0	\bdegrees\b
+00B0	degrees
 00B1	+/-
 # 00B2, 00B3: superscript "2", "3"
 00B2	(2)
@@ -2167,9 +2166,9 @@
 2026	...
 2027	.
 # 2028	<LINE SEPARATOR>
-2028	\n
+2028	 
 # 2029	<PARAGRAPH SEPARATOR>
-2029	\n
+2029	 
 # 202A-202F: various space
 202A	 
 202B	 
