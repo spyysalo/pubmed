@@ -21,8 +21,6 @@ except ImportError:
     import cElementTree as ET
 
 
-utf8_stdout = codecs.getwriter('utf8')(sys.stdout)
-
 output_count, skipped_count = 0, 0
 
 month_abbr_map = {
@@ -654,7 +652,7 @@ def write_citation(directory, name, outfile, citation, options):
         text = json.dumps(citation.to_dict(options), sort_keys=True,
                           indent=2, separators=(',', ': '))
     if directory is None:
-        print(text, file=utf8_stdout)
+        print(text, file=sys.stdout)
     else:
         suffix = '.txt' if not options.json else '.json'
         fn = os.path.join(directory, citation.PMID+suffix)
